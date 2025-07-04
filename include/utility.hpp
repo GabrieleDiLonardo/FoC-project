@@ -126,11 +126,11 @@ EVP_PKEY *generate_dh_keypair(EVP_PKEY *dh_params)
 }
 
 bool sign_dh_parameters(
-    EVP_PKEY *dss_private_key,              // chiave privata del DSS
-    const unsigned char *dh_pubkey,         // dati da firmare (es. g^b mod p)
-    size_t dh_pubkey_len,                   // lunghezza dei dati
-    unsigned char *signature,               // buffer in cui salvare la firma
-    size_t &signature_len                   // output: lunghezza effettiva della firma
+    EVP_PKEY *dss_private_key,      // chiave privata del DSS
+    const unsigned char *dh_pubkey, // dati da firmare (es. g^b mod p)
+    size_t dh_pubkey_len,           // lunghezza dei dati
+    unsigned char *signature,       // buffer in cui salvare la firma
+    size_t &signature_len           // output: lunghezza effettiva della firma
 )
 {
     // Creazione contesto per firma
@@ -148,7 +148,7 @@ bool sign_dh_parameters(
         EVP_MD_CTX_free(mdctx);
         return false;
     }
-    
+
     // Indicazione parametri da firmare
     if (EVP_SignUpdate(mdctx, dh_pubkey, dh_pubkey_len) <= 0)
     {
@@ -167,6 +167,72 @@ bool sign_dh_parameters(
 
     EVP_MD_CTX_free(mdctx);
     return true;
+}
+
+bool verify_dh_signature(
+    const unsigned char *dh_pubkey, size_t dh_pubkey_len, /* dati firmati da verificare (g^b mod p) */
+    const unsigned char *signature, size_t signature_len, /* firma ricevuta dal DSS */
+    const std::string &public_key_file = "../public.pem") /* file da cui ricavare chiave pubblica DSS */
+{
+    bool result = false;
+    EVP_PKEY *dss_pubkey = nullptr;
+    EVP_MD_CTX *mdctx = nullptr;
+    FILE *fp = nullptr;
+
+    // Lettura della chiave pubblica del DSS
+    fp = fopen(public_key_file.c_str(), "r");
+    if (!fp)
+    {
+        std::cerr << "Errore: impossibile aprire " << public_key_file << std::endl;
+        return false;
+    }
+
+    dss_pubkey = PEM_read_PUBKEY(fp, nullptr, nullptr, nullptr);
+    fclose(fp);
+
+    if (!dss_pubkey)
+    {
+        std::cerr << "Errore: lettura chiave pubblica fallita" << std::endl;
+        return false;
+    }
+
+    // Creazione contesto per la verifica
+    mdctx = EVP_MD_CTX_new();
+    if (!mdctx)
+    {
+        std::cerr << "Errore: creazione contesto verifica fallita" << std::endl;
+        EVP_PKEY_free(dss_pubkey);
+        return false;
+    }
+
+    // Inizializzazione verifica con SHA-256
+    if (EVP_VerifyInit(mdctx, EVP_sha256()) <= 0)
+    {
+        std::cerr << "Errore: init verifica fallita" << std::endl;
+        goto cleanup;
+    }
+
+    // Fornisce i dati originali firmati da verificare
+    if (EVP_VerifyUpdate(mdctx, dh_pubkey, dh_pubkey_len) <= 0)
+    {
+        std::cerr << "Errore: update verifica fallito" << std::endl;
+        goto cleanup;
+    }
+
+    // Verifica la firma
+    if (EVP_VerifyFinal(mdctx, signature, signature_len, dss_pubkey) == 1)
+    {
+        result = true; // Verifica riuscita
+    }
+    else
+    {
+        std::cerr << "Errore: firma non valida" << std::endl;
+    }
+
+cleanup:
+    EVP_MD_CTX_free(mdctx);
+    EVP_PKEY_free(dss_pubkey);
+    return result;
 }
 
 // Funzione per calcolare la chiave di sessione condivisa
@@ -235,7 +301,7 @@ unsigned char *derive_shared_secret(EVP_PKEY *my_keypair, EVP_PKEY *peer_pubkey,
 /*
 bool aes_encrypt_cbc(const unsigned char *key,
                      const unsigned char *plaintext, int plaintext_len,
-                     unsigned char *iv, unsigned char *ciphertext, int &ciphertext_len) 
+                     unsigned char *iv, unsigned char *ciphertext, int &ciphertext_len)
 {
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     int len = 0;
