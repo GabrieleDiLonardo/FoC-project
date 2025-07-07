@@ -5,6 +5,16 @@
 #include <openssl/err.h>
 #include <openssl/core_names.h>
 #include <iostream>
+#include <chrono>
+
+// Funzione che ritorna il timestamp corrente in secondi
+inline uint64_t get_current_unix_timestamp() {
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count()
+    );
+}
 
 // Funzione generatrice di p e g
 EVP_PKEY *generate_dh_params()
@@ -298,12 +308,12 @@ unsigned char *derive_shared_secret(EVP_PKEY *my_keypair, EVP_PKEY *peer_pubkey,
     return secret;
 }
 
-/*
-bool aes_encrypt_cbc(const unsigned char *key,
-                     const unsigned char *plaintext, int plaintext_len,
-                     unsigned char *iv, unsigned char *ciphertext, int &ciphertext_len)
+// Funzione per cifratura con AES a 128 bit e MAC
+bool aes_encrypt_gcm(const unsigned char *key, const unsigned char *plaintext, int plaintext_len,
+                     const unsigned char *iv, const unsigned char *aad, int aad_len,
+                     unsigned char *ciphertext, unsigned char *tag, int &ciphertext_len)
 {
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     int len = 0;
     ciphertext_len = 0;
 
@@ -312,78 +322,142 @@ bool aes_encrypt_cbc(const unsigned char *key,
         return false;
     }
 
-    // Generazione IV casuale (16 byte per AES)
-    if (!RAND_bytes(iv, 16))
+    // Scelta dell'algoritmo di cifratura (AES in modalità GCM con chiave a 128 bit)
+    if (EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), NULL, NULL, NULL) != 1)
     {
         return false;
     }
 
-    // Inizializzazione contesto con AES-256-CBC
-    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, key, iv) != 1)
+    // Inizializzazione del IV ad una lunghezza massima di 12 byte (opzionale)
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, NULL) != 1)
     {
         return false;
     }
 
-    // Cifratura dati
+    // Indicazione della chiave e del IV da usare per la cifratura
+    if (EVP_EncryptInit_ex(ctx, NULL, NULL, key, iv) != 1)
+    {
+        return false;
+    }
+
+    // Processa AAD se presente
+    if (aad && aad_len > 0)
+    {
+        if (EVP_EncryptUpdate(ctx, NULL, &len, aad, aad_len) != 1)
+        {
+            EVP_CIPHER_CTX_free(ctx);
+            return false;
+        }
+    }
+
+    // Cifratura del messaggio e salvataggio nel buffer ciphertext
     if (EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, plaintext_len) != 1)
     {
         return false;
     }
-
     ciphertext_len = len;
 
-    // Aggiunge eventuale padding (AES vuole blocchi da 16 byte)
+    // Termina processo di cifratura
     if (EVP_EncryptFinal_ex(ctx, ciphertext + len, &len) != 1)
     {
         return false;
     }
-
     ciphertext_len += len;
+
+    // Derivazione del tag e salvataggio nella variabile
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) != 1)
+    {
+        return false;
+    }
 
     EVP_CIPHER_CTX_free(ctx);
     return true;
 }
 
-// Funzione per generare il MAC e garantire autenticità ed integrità
-bool compute_hmac(
-    const unsigned char *key, size_t key_len,
-    const unsigned char *message, size_t msg_len,
-    unsigned char *out_digest, unsigned int &out_len)
+// Funzione per decifratura con AES a 128 bit e MAC
+bool aes_decrypt_gcm(const unsigned char *ciphertext, int ciphertext_len,
+                     const unsigned char *aad, int aad_len,
+                     const unsigned char *tag,
+                     const unsigned char *key,
+                     const unsigned char *iv, int iv_len,
+                     unsigned char *plaintext, int &plaintext_len, uint64_t max_delay)
 {
-    // Creazione contesto per generazione MAC
-    HMAC_CTX *ctx = HMAC_CTX_new();
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    int len = 0;
+    int ret = 0;
+    uint64_t ts = 0;
+    plaintext_len = 0;
+
     if (!ctx)
     {
-        std::cerr << "Errore: creazione HMAC_CTX fallita" << std::endl;
         return false;
     }
 
-    // Inizializzazione contesto HMAC con chiave segreta e algoritmo
-    if (!HMAC_Init_ex(ctx, key, key_len, EVP_sha256(), NULL))
+    // Controlla lunghezza IV (opzionale)
+    if (iv_len != 12)
     {
-        std::cerr << "Errore: HMAC_Init_ex fallita" << std::endl;
-        HMAC_CTX_free(ctx);
         return false;
     }
 
-    // Indicazione messaggio da autenticare
-    if (!HMAC_Update(ctx, message, msg_len))
+    // Scelta dell'algoritmo di decifratura (AES in modalità GCM con chiave a 128 bit)
+    if (EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), NULL, NULL, NULL) != 1)
     {
-        std::cerr << "Errore: HMAC_Update fallita" << std::endl;
-        HMAC_CTX_free(ctx);
+        EVP_CIPHER_CTX_free(ctx);
         return false;
     }
 
-    // Calcolo digest finale
-    if (!HMAC_Final(ctx, out_digest, &out_len))
+    // Inizializzazione del IV ad una lunghezza massima di 12 byte (opzionale)
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, iv_len, NULL) != 1)
     {
-        std::cerr << "Errore: HMAC_Final fallita" << std::endl;
-        HMAC_CTX_free(ctx);
+        EVP_CIPHER_CTX_free(ctx);
         return false;
     }
 
-    HMAC_CTX_free(ctx);
+    // Indicazione della chiave e del IV da usare per la decifratura
+    if (EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv) != 1)
+    {
+        EVP_CIPHER_CTX_free(ctx);
+        return false;
+    }
+
+    // Verifico timestamp con finestra temporale max_delayn per evitare replay attack
+    for (int i = 0; i < 8; ++i) {
+        ts |= (static_cast<uint64_t>(aad[i]) << (8 * i));
+    }
+
+    uint64_t now = get_current_unix_timestamp();
+    if (ts > now || (now - ts) > max_delay)
+    {
+        EVP_CIPHER_CTX_free(ctx);
+        return false;
+    }
+
+    // Decifratura del messaggio e salvataggio nel buffer plaintext
+    if (EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len) != 1)
+    {
+        EVP_CIPHER_CTX_free(ctx);
+        return false;
+    }
+    plaintext_len = len;
+
+    // Imposta il tag da verificare prima della finalizzazione
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, (void *)tag) != 1)
+    {
+        EVP_CIPHER_CTX_free(ctx);
+        return false;
+    }
+
+    // Verifica il tag e completa la decifratura
+    if (EVP_DecryptFinal_ex(ctx, plaintext + len, &len) != 1)
+    {
+        EVP_CIPHER_CTX_free(ctx);
+        return false;
+    }
+    plaintext_len += len;
+
+    EVP_CIPHER_CTX_free(ctx);
+
     return true;
-}*/
+}
 
 #endif
