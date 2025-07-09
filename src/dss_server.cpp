@@ -1,12 +1,4 @@
 #include "dss_server.h"
-#include <openssl/rsa.h>
-#include <openssl/pem.h>
-#include <openssl/err.h>
-#include <openssl/sha.h>
-#include <fstream>
-#include <sstream>
-#include <filesystem>
-#include <iostream>
 #include <openssl/applink.c>
 
 using namespace std;

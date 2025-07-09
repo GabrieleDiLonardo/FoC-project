@@ -3,7 +3,14 @@
 
 #include <iostream>
 #include <fstream>
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
+#include <openssl/err.h>
 #include <openssl/sha.h>
+#include <sstream>
+#include <filesystem>
+
+
 #include <string>
 using namespace std;
 
