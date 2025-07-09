@@ -1,55 +1,121 @@
-#define WIN32_LEAN_AND_MEAN
+#include <iostream>
+#include <string>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <iostream>
 
 #pragma comment(lib, "ws2_32.lib")
 
-int main() {
+using namespace std;
+
+constexpr int PORT = 8080;
+constexpr const char* SERVER_IP = "127.0.0.1";
+
+string getCommandFromChoice(int choice) {
+    switch (choice) {
+        case 1: return "CreateKeys";
+        case 2: return "SignDoc";
+        case 3: return "GetPublicKey";
+        case 4: return "DeleteKeys";
+        case 5: return "Exit";
+        default: return "";
+    }
+}
+
+bool sendRequestToServer(const string& request, string& response) {
     WSADATA wsaData;
+    SOCKET clientSocket;
+    sockaddr_in serverAddr;
 
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        std::cerr << "WSAStartup fallito" << std::endl;
-        return 1;
+        cerr << "Errore WSAStartup.\n";
+        return false;
     }
 
-    SOCKET client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (client_socket == INVALID_SOCKET) {
-        std::cerr << "Errore creazione socket: " << WSAGetLastError() << std::endl;
+    clientSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (clientSocket == INVALID_SOCKET) {
+        cerr << "Errore nella creazione del socket.\n";
         WSACleanup();
-        return 1;
+        return false;
     }
 
-    sockaddr_in server_addr;
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(54000);
-    if (inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr) != 1) {
-        std::cerr << "inet_pton fallito" << std::endl;
-        closesocket(client_socket);
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(PORT);
+    inet_pton(AF_INET, SERVER_IP, &serverAddr.sin_addr);
+
+    if (connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
+        cerr << "Errore di connessione al server.\n";
+        closesocket(clientSocket);
         WSACleanup();
-        return 1;
+        return false;
     }
 
-    if (connect(client_socket, (SOCKADDR*)&server_addr, sizeof(server_addr)) == SOCKET_ERROR) {
-        std::cerr << "Connect fallito: " << WSAGetLastError() << std::endl;
-        closesocket(client_socket);
-        WSACleanup();
-        return 1;
+    send(clientSocket, request.c_str(), static_cast<int>(request.length()), 0);
+
+    char buffer[2048];
+    int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
+    if (bytesReceived > 0) {
+        buffer[bytesReceived] = '\0';
+        response = buffer;
     }
 
-    const char* message = "Ciao server, questo è il client!";
-    send(client_socket, message, (int)strlen(message), 0);
-
-    char buffer[512];
-    int bytes_received = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
-    if (bytes_received > 0) {
-        buffer[bytes_received] = '\0';
-        std::cout << "Risposta dal server: " << buffer << std::endl;
-    } else {
-        std::cerr << "Errore o connessione chiusa durante la ricezione della risposta." << std::endl;
-    }
-
-    closesocket(client_socket);
+    closesocket(clientSocket);
     WSACleanup();
+    return true;
+}
+
+int main() {
+    string username;
+    cout << "Inserisci il tuo nome utente: ";
+    getline(cin, username);
+
+    while (true) {
+        cout << "\nScegli un comando:\n";
+        cout << "1. CreateKeys\n";
+        cout << "2. SignDoc\n";
+        cout << "3. GetPublicKey\n";
+        cout << "4. DeleteKeys\n";
+        cout << "5. Exit\n";
+        cout << "Scelta: ";
+
+        string input;
+        getline(cin, input);
+        int choice;
+
+        try {
+            choice = stoi(input);
+        } catch (...) {
+            cout << "Input non valido. Inserisci un numero tra 1 e 5.\n";
+            continue;
+        }
+
+        string command = getCommandFromChoice(choice);
+        if (command.empty()) {
+            cout << "Scelta non valida.\n";
+            continue;
+        }
+
+        string fullRequest = command + " " + username;
+
+        if (command == "Exit")
+            break;
+
+        if (command == "SignDoc") {
+            string document;
+            cout << "Inserisci il documento da firmare: ";
+            getline(cin, document);
+            fullRequest += " " + document;
+        } else if (command == "GetPublicKey") {
+            string userToQuery;
+            cout << "Inserisci il nome dell'utente: ";
+            getline(cin, userToQuery);
+            fullRequest = command + " " + userToQuery;
+        }
+
+        string serverResponse;
+        if (sendRequestToServer(fullRequest, serverResponse)) {
+            cout << "Risposta dal server:\n" << serverResponse << endl;
+        } 
+    }
+
     return 0;
 }
