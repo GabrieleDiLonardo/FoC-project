@@ -128,12 +128,12 @@ EVP_PKEY *generate_dh_keypair(EVP_PKEY *dh_params)
     return keypair;
 }
 
-bool sign_dh_parameters(
-    EVP_PKEY *dss_private_key,      // chiave privata del DSS
-    const unsigned char *dh_pubkey, // dati da firmare (es. g^b mod p)
-    size_t dh_pubkey_len,           // lunghezza dei dati
-    unsigned char *signature,       // buffer in cui salvare la firma
-    unsigned int &signature_len           // output: lunghezza effettiva della firma
+bool sign_data(
+    EVP_PKEY *dss_private_key,  // chiave per firmare
+    const unsigned char *data,  // dati da firmare
+    size_t data_len,            // lunghezza dei dati
+    unsigned char *signature,   // buffer in cui salvare la firma
+    unsigned int &signature_len       // output: lunghezza effettiva della firma
 )
 {
     // Creazione contesto per firma
@@ -153,7 +153,7 @@ bool sign_dh_parameters(
     }
 
     // Indicazione parametri da firmare
-    if (EVP_SignUpdate(mdctx, dh_pubkey, dh_pubkey_len) <= 0)
+    if (EVP_SignUpdate(mdctx, data, data_len) <= 0)
     {
         std::cerr << "Errore: update firma fallito" << std::endl;
         EVP_MD_CTX_free(mdctx);
@@ -172,7 +172,7 @@ bool sign_dh_parameters(
     return true;
 }
 
-bool verify_dh_signature(
+bool verify_signature(
     const unsigned char *dh_pubkey, size_t dh_pubkey_len, /* dati firmati da verificare (g^b mod p) */
     const unsigned char *signature, size_t signature_len, /* firma ricevuta dal DSS */
     const std::string &public_key_file) /* file da cui ricavare chiave pubblica DSS */
@@ -465,3 +465,25 @@ string hash_password(const string &password)
     return ss.str();
 }
 
+string toHex(const vector<unsigned char> &data)
+{
+    stringstream ss;
+    ss << hex << setfill('0');
+    for (unsigned char byte : data)
+    {
+        ss << setw(2) << (int)byte;
+    }
+    return ss.str();
+}
+
+vector<unsigned char> hex_to_bytes(const string &hex)
+{
+    vector<unsigned char> bytes;
+    for (size_t i = 0; i < hex.length(); i += 2)
+    {
+        string byteString = hex.substr(i, 2);
+        unsigned char byte = static_cast<unsigned char>(strtol(byteString.c_str(), nullptr, 16));
+        bytes.push_back(byte);
+    }
+    return bytes;
+}

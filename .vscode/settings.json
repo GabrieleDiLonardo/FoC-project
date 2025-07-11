@@ -1,5 +1,6 @@
 {
     "files.associations": {
+        "*.embeddedhtml": "html",
         "sstream": "cpp",
         "array": "cpp",
         "atomic": "cpp",
@@ -42,6 +43,11 @@
         "ostream": "cpp",
         "stdexcept": "cpp",
         "streambuf": "cpp",
-        "typeinfo": "cpp"
+        "typeinfo": "cpp",
+        "__locale": "cpp",
+        "bitset": "cpp",
+        "optional": "cpp",
+        "string_view": "cpp",
+        "variant": "cpp"
     }
 }

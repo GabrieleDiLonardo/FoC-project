@@ -25,16 +25,16 @@ EVP_PKEY *generate_dh_params();
 // Funzione generatrice di a o b e di g^a mod p o g^b mod p
 EVP_PKEY *generate_dh_keypair(EVP_PKEY *dh_params);
 
-bool sign_dh_parameters(
-    EVP_PKEY *dss_private_key,      // chiave privata del DSS
-    const unsigned char *dh_pubkey, // dati da firmare (es. g^b mod p)
-    size_t dh_pubkey_len,           // lunghezza dei dati
-    unsigned char *signature,       // buffer in cui salvare la firma
-    size_t &signature_len           // output: lunghezza effettiva della firma
-    );
+bool sign_data(
+    EVP_PKEY *dss_private_key,
+    const unsigned char *data,
+    size_t data_len,
+    unsigned char *signature,
+    unsigned int &signature_len
+);
 
 
-bool verify_dh_signature(
+bool verify_signature(
     const unsigned char *dh_pubkey, size_t dh_pubkey_len, /* dati firmati da verificare (g^b mod p) */
     const unsigned char *signature, size_t signature_len, /* firma ricevuta dal DSS */
     const std::string &public_key_file = "../public.pem" /* file da cui ricavare chiave pubblica DSS */
@@ -61,4 +61,10 @@ bool aes_decrypt_gcm(
     );
 
 string hash_password(const string &password);
+
+// Funzione di supporto: converte byte vector -> string
+string toHex(const vector<unsigned char> &data);
+
+// Funzione di supporto: converte hex string -> byte vector
+vector<unsigned char> hex_to_bytes(const string &hex);
 #endif

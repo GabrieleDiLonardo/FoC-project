@@ -1,4 +1,5 @@
 #include "dss_server.h"
+#include "utility.h"
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -71,7 +72,41 @@ string get_public_key(const string &user)
 // === SignDoc ===
 string sign_document(const string &user, const string &document)
 {
-    return "ancora non implementata";
+    string privKeyPath = get_key_path(user, "priv.pem");
+
+    FILE *privKeyFile = fopen(privKeyPath.c_str(), "rb");
+    if (!privKeyFile)
+    {
+        return "Errore: impossibile aprire la chiave privata per l'utente '" + user + "'.";
+    }
+
+    EVP_PKEY *privKey = PEM_read_PrivateKey(privKeyFile, nullptr, nullptr, nullptr);
+    fclose(privKeyFile);
+
+    if (!privKey)
+    {
+        return "Errore: lettura della chiave privata fallita.";
+    }
+
+    vector<unsigned char> digest_bytes = hex_to_bytes(document);
+
+    vector<unsigned char> signature(EVP_PKEY_size(privKey));
+    unsigned int sig_len = 0;
+
+    bool success = sign_data(privKey, digest_bytes.data(), digest_bytes.size(), signature.data(), sig_len);
+    EVP_PKEY_free(privKey);
+
+    if (!success)
+    {
+        return "Errore: firma fallita.";
+    }
+
+    stringstream ss;
+    ss << hex << setfill('0');
+    for (unsigned int i = 0; i < sig_len; ++i)
+        ss << setw(2) << static_cast<int>(signature[i]);
+
+    return ss.str();
 }
 
 // === DeleteKeys ===

@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include "../include/utility.h"
+#include "../include/user.h"
 
 using namespace std;
 
@@ -86,7 +87,6 @@ int main()
         sendRequestToServer(fullRequest, serverResponse);
     } while (serverResponse == "Username e/o password non corretti/o.\n");
 
-
     if (serverResponse == "Inserisci nuova password: ")
     {
         cout << serverResponse;
@@ -137,14 +137,33 @@ int main()
         fullRequest = command + " " + username + " " + password;
 
         if (command == "Exit")
+        {
             break;
+        }
 
         if (command == "SignDoc")
         {
-            string document;
-            cout << "Inserisci il documento da firmare: ";
-            getline(cin, document);
-            fullRequest += " " + document;
+            string file_name;
+            while (true)
+            {
+                system("clear");
+                cout << "Inserisci il nome del documento da firmare (con estensione, es: file.txt): ";
+                getline(cin, file_name);
+
+                size_t dotPos = file_name.find_last_of('.');
+                if (dotPos != string::npos && dotPos != file_name.length() - 1)
+                {
+                    break;
+                }
+                else
+                {
+                    cout << "Errore: devi specificare anche l'estensione del file (es: file.txt).\n";
+                }
+            }
+            vector<unsigned char> fileData = readFile(file_name);
+            vector<unsigned char> document = sha256(fileData);
+            string documentHex = toHex(document);
+            fullRequest += " " + documentHex;
         }
         else if (command == "GetPublicKey")
         {

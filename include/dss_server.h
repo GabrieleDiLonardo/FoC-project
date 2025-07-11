@@ -32,4 +32,5 @@ int first_login(const string &username);
 string login(const string &username, const string &password);
 string change_temporary_password(const string &username, const string &new_password);
 bool check_password(const string& username, const string& password);
+string get_key_path(const string &user, const string &ext);
 #endif

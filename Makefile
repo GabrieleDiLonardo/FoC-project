@@ -15,7 +15,7 @@ LDFLAGS = -L$(OPENSSL_LIB) -lssl -lcrypto
 
 # === File oggetto ===
 SERVER_OBJS = $(OBJ)/main.o $(OBJ)/dss_server.o $(OBJ)/utility.o
-CLIENT_OBJS = $(OBJ)/main_client.o $(OBJ)/utility.o
+CLIENT_OBJS = $(OBJ)/main_client.o $(OBJ)/utility.o $(OBJ)/user.o
 GENERATE_USER_OBJS = $(OBJ)/generate_user.o $(OBJ)/utility.o
 
 # === Targets ===
@@ -41,6 +41,9 @@ $(OBJ)/generate_user.o: $(SRC)/generate_user.cpp
 
 # === Compilazione utility ===
 $(OBJ)/utility.o: $(SRC)/utility.cpp $(INCLUDE_LOCAL)/utility.h
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(OBJ)/user.o: $(SRC)/user.cpp $(INCLUDE_LOCAL)/user.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # === Link finali ===
