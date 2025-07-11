@@ -133,7 +133,7 @@ bool sign_dh_parameters(
     const unsigned char *dh_pubkey, // dati da firmare (es. g^b mod p)
     size_t dh_pubkey_len,           // lunghezza dei dati
     unsigned char *signature,       // buffer in cui salvare la firma
-    size_t &signature_len           // output: lunghezza effettiva della firma
+    unsigned int &signature_len           // output: lunghezza effettiva della firma
 )
 {
     // Creazione contesto per firma
@@ -175,7 +175,7 @@ bool sign_dh_parameters(
 bool verify_dh_signature(
     const unsigned char *dh_pubkey, size_t dh_pubkey_len, /* dati firmati da verificare (g^b mod p) */
     const unsigned char *signature, size_t signature_len, /* firma ricevuta dal DSS */
-    const std::string &public_key_file = "../public.pem") /* file da cui ricavare chiave pubblica DSS */
+    const std::string &public_key_file) /* file da cui ricavare chiave pubblica DSS */
 {
     bool result = false;
     EVP_PKEY *dss_pubkey = nullptr;
@@ -377,7 +377,6 @@ bool aes_decrypt_gcm(const unsigned char *ciphertext, int ciphertext_len,
 {
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     int len = 0;
-    int ret = 0;
     uint64_t ts = 0;
     plaintext_len = 0;
 
@@ -451,5 +450,18 @@ bool aes_decrypt_gcm(const unsigned char *ciphertext, int ciphertext_len,
     EVP_CIPHER_CTX_free(ctx);
 
     return true;
+}
+
+string hash_password(const string &password)
+{
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256(reinterpret_cast<const unsigned char *>(password.c_str()), password.size(), hash);
+
+    stringstream ss;
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i)
+    {
+        ss << hex << setw(2) << setfill('0') << static_cast<int>(hash[i]);
+    }
+    return ss.str();
 }
 

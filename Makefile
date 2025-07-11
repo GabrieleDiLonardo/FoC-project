@@ -1,6 +1,6 @@
 # === Percorsi OpenSSL ===
-OPENSSL_INC = C:\OpenSSL-Win64\include
-OPENSSL_LIB = C:\OpenSSL-Win64\lib\VC\x64\MD
+OPENSSL_INC = /opt/homebrew/opt/openssl@3/include
+OPENSSL_LIB = /opt/homebrew/opt/openssl@3/lib
 
 # === Directory progetto ===
 SRC  = src
@@ -9,46 +9,51 @@ BIN  = bin
 INCLUDE_LOCAL = include
 
 # === Compiler & linker ===
-CL = cl.exe
-LINK = link.exe
-
-# === Flag compilatore ===
-CLFLAGS = /nologo /W3 /EHsc /std:c++17 /MD /I"$(OPENSSL_INC)" /I"$(INCLUDE_LOCAL)"
-LDFLAGS = /link /LIBPATH:"$(OPENSSL_LIB)" libssl.lib libcrypto.lib ws2_32.lib
+CXX = g++
+CXXFLAGS = -std=c++17 -Wall -I$(OPENSSL_INC) -I$(INCLUDE_LOCAL)
+LDFLAGS = -L$(OPENSSL_LIB) -lssl -lcrypto
 
 # === File oggetto ===
-SERVER_OBJS = $(OBJ)\main.obj $(OBJ)\dss_server.obj
-CLIENT_OBJS = $(OBJ)\main_client.obj
+SERVER_OBJS = $(OBJ)/main.o $(OBJ)/dss_server.o $(OBJ)/utility.o
+CLIENT_OBJS = $(OBJ)/main_client.o $(OBJ)/utility.o
+GENERATE_USER_OBJS = $(OBJ)/generate_user.o $(OBJ)/utility.o
 
 # === Targets ===
-all: dirs server client
+all: dirs server client generate_user
 
 dirs:
-	if not exist $(OBJ) mkdir $(OBJ)
-	if not exist $(BIN) mkdir $(BIN)
-	if not exist keys mkdir keys
+	mkdir -p $(OBJ) $(BIN) keys
 
 # === Compilazione Server ===
-$(OBJ)\main.obj: $(SRC)\main.cpp
-	$(CL) $(CLFLAGS) /c $(SRC)\main.cpp /Fo$(OBJ)\main.obj
+$(OBJ)/main.o: $(SRC)/main.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-$(OBJ)\dss_server.obj: $(SRC)\dss_server.cpp
-	$(CL) $(CLFLAGS) /c $(SRC)\dss_server.cpp /Fo$(OBJ)\dss_server.obj
+$(OBJ)/dss_server.o: $(SRC)/dss_server.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # === Compilazione Client ===
-$(OBJ)\main_client.obj: $(SRC)\main_client.cpp
-	$(CL) $(CLFLAGS) /c $(SRC)\main_client.cpp /Fo$(OBJ)\main_client.obj
+$(OBJ)/main_client.o: $(SRC)/main_client.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# === Link ===
+# === Compilazione generate_user ===
+$(OBJ)/generate_user.o: $(SRC)/generate_user.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# === Compilazione utility ===
+$(OBJ)/utility.o: $(SRC)/utility.cpp $(INCLUDE_LOCAL)/utility.h
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# === Link finali ===
 server: $(SERVER_OBJS)
-	$(CL) $(SERVER_OBJS) /Fe$(BIN)\server.exe $(LDFLAGS)
+	$(CXX) $^ -o $(BIN)/server $(LDFLAGS)
 
 client: $(CLIENT_OBJS)
-	$(CL) $(CLIENT_OBJS) /Fe$(BIN)\client.exe $(LDFLAGS)
+	$(CXX) $^ -o $(BIN)/client $(LDFLAGS)
+
+generate_user: $(GENERATE_USER_OBJS)
+	$(CXX) $^ -o $(BIN)/generate_user $(LDFLAGS)
 
 clean:
-	if exist $(OBJ)\*.obj del /Q $(OBJ)\*.obj
-	if exist $(BIN)\server.exe del /Q $(BIN)\server.exe
-	if exist $(BIN)\client.exe del /Q $(BIN)\client.exe
+	rm -rf $(OBJ)/*.o $(BIN)/server $(BIN)/client $(BIN)/generate_user
 
-.PHONY: all dirs clean server client
+.PHONY: all dirs clean server client generate_user

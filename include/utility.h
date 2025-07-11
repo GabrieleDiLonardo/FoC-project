@@ -4,8 +4,16 @@
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/core_names.h>
+#include <openssl/params.h>
+#include <openssl/pem.h>
+#include <openssl/opensslv.h>
 #include <iostream>
+#include <string>
 #include <chrono>
+#include <openssl/param_build.h> 
+#include <sstream>
+#include <iomanip>  
+using namespace std;
 
 
 // Funzione che ritorna il timestamp corrente in secondi
@@ -52,4 +60,5 @@ bool aes_decrypt_gcm(
     unsigned char *plaintext, int &plaintext_len, uint64_t max_delay
     );
 
+string hash_password(const string &password);
 #endif
