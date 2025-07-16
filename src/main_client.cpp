@@ -8,9 +8,6 @@
 
 using namespace std;
 
-constexpr int PORT = 8080;
-constexpr const char *SERVER_IP = "127.0.0.1";
-
 string getCommandFromChoice(int choice)
 {
     switch (choice)
@@ -38,7 +35,7 @@ bool sendRequestToServer(const string &request, string &response)
     clientSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (clientSocket == -1)
     {
-        cerr << "Errore nella creazione del socket.\n";
+        cerr << "Error connecting to the server.\n";
         return false;
     }
 
@@ -48,7 +45,7 @@ bool sendRequestToServer(const string &request, string &response)
 
     if (connect(clientSocket, (sockaddr *)&serverAddr, sizeof(serverAddr)) == /*SOCKET_ERROR*/ -1)
     {
-        cerr << "Errore di connessione al server.\n";
+        cerr << "Error connecting to the server.\n";
         close(clientSocket);
         return false;
     }
@@ -78,19 +75,21 @@ int main()
     do
     {
         system("clear");
-        cout << "Inserisci il tuo nome utente: ";
+        cout << "Username: ";
         getline(cin, username);
         cout << "Password: ";
         getline(cin, password);
         hashed_password = hash_password(password);
         fullRequest = "Login " + username + " " + hashed_password;
         sendRequestToServer(fullRequest, serverResponse);
-    } while (serverResponse == "Username e/o password non corretti/o.\n");
+    } while (serverResponse == "Invalid username or password.\n");
 
-    if (serverResponse == "Inserisci nuova password: ")
+    system("clear");
+
+    if (serverResponse == "First login detected. Please set a new password: ")
     {
         cout << serverResponse;
-        while (serverResponse != "Password modificata.\n")
+        while (serverResponse != "Password successfully updated..\n")
         {
             fullRequest = "\0";
             password = "\0";
@@ -105,13 +104,13 @@ int main()
 
     while (true)
     {
-        cout << "\nScegli un comando:\n";
-        cout << "1. CreateKeys\n";
-        cout << "2. SignDoc\n";
-        cout << "3. GetPublicKey\n";
-        cout << "4. DeleteKeys\n";
-        cout << "5. Exit\n";
-        cout << "Scelta: ";
+        cout << "\nEnter the number corresponding to a command:" << endl;
+        cout << "1. CreateKeys" << endl;
+        cout << "2. SignDoc" << endl;
+        cout << "3. GetPublicKey" << endl;
+        cout << "4. DeleteKeys" << endl;
+        cout << "5. Exit" << endl;
+        cout << "Choice: ";
 
         string input;
         getline(cin, input);
@@ -123,14 +122,14 @@ int main()
         }
         catch (...)
         {
-            cout << "Input non valido. Inserisci un numero tra 1 e 5.\n";
+            cout << "Invalid input. Please enter a number between 1 and 5." << endl;
             continue;
         }
 
         string command = getCommandFromChoice(choice);
         if (command.empty())
         {
-            cout << "Scelta non valida.\n";
+            cout << "Invalid choice" << endl;
             continue;
         }
 
@@ -147,7 +146,7 @@ int main()
             while (true)
             {
                 system("clear");
-                cout << "Inserisci il nome del documento da firmare (con estensione, es: file.txt): ";
+                cout << "Enter the name of the document to be signed (including extension, e.g., file.txt): ";
                 getline(cin, file_name);
 
                 size_t dotPos = file_name.find_last_of('.');
@@ -157,7 +156,7 @@ int main()
                 }
                 else
                 {
-                    cout << "Errore: devi specificare anche l'estensione del file (es: file.txt).\n";
+                    cout << "Error: you must also include the file extension (e.g., file.txt)." << endl;
                 }
             }
             vector<unsigned char> fileData = readFile(file_name);
@@ -168,15 +167,20 @@ int main()
         else if (command == "GetPublicKey")
         {
             string userToQuery;
-            cout << "Inserisci il nome dell'utente: ";
+            cout << "Enter the username of the user whose public key you want to retrieve: ";
             getline(cin, userToQuery);
             fullRequest = command + " " + userToQuery;
         }
 
         if (sendRequestToServer(fullRequest, serverResponse))
         {
-            cout << "Risposta dal server:\n"
-                 << serverResponse << endl;
+            cout << serverResponse << endl;
+        }
+
+        if (command == "DeleteKeys")
+        {
+            cout << "New registration required. Logging out..." << endl;
+            break;
         }
     }
 

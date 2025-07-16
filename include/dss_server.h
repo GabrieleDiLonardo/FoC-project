@@ -18,9 +18,8 @@
 #include <openssl/params.h>
 #include <openssl/opensslv.h>
 #include <openssl/param_build.h> 
-
-
 #include <string>
+
 using namespace std;
 
 string create_keys(const string& user);
@@ -33,4 +32,6 @@ string login(const string &username, const string &password);
 string change_temporary_password(const string &username, const string &new_password);
 bool check_password(const string& username, const string& password);
 string get_key_path(const string &user, const string &ext);
+bool modify_file(const string &username, const ifstream &file);
+
 #endif

@@ -1,18 +1,25 @@
 #ifndef UTILITY_H
 #define UTILITY_H
 
+
+#include <iostream>
+#include <string>
+#include <chrono>
+#include <sstream>
+#include <iomanip>
+#include <openssl/rand.h>
+#include <openssl/kdf.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/core_names.h>
 #include <openssl/params.h>
 #include <openssl/pem.h>
 #include <openssl/opensslv.h>
-#include <iostream>
-#include <string>
-#include <chrono>
 #include <openssl/param_build.h> 
-#include <sstream>
-#include <iomanip>  
+#include <openssl/sha.h>
+
+#define PORT 8080
+
 using namespace std;
 
 
@@ -67,4 +74,5 @@ string toHex(const vector<unsigned char> &data);
 
 // Funzione di supporto: converte hex string -> byte vector
 vector<unsigned char> hex_to_bytes(const string &hex);
+
 #endif

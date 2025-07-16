@@ -2,9 +2,7 @@
 #include <string>
 #include <sstream>
 #include "dss_server.h"
-
-
-#define PORT 8080
+#include "utility.h"
 
 using namespace std;
 
@@ -14,7 +12,7 @@ void handleClient(int clientSocket)
     int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
     if (bytesReceived <= 0)
     {
-        cerr << "Errore nella ricezione dati o connessione chiusa.\n";
+        cerr << "Error receiving data or connection closed.\n";
         close(clientSocket);
         return;
     }
@@ -62,11 +60,11 @@ void handleClient(int clientSocket)
     }
     else if (command == "exit")
     {
-        response = "Connessione terminata.\n";
+        response = "Connection terminated.\n";;
     }
     else
     {
-        response = "Comando non riconosciuto.\n";
+        response = "Command not recognized.\n";
     }
 
     send(clientSocket, response.c_str(), static_cast<int>(response.length()), 0);
@@ -80,7 +78,7 @@ int main()
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (serverSocket == -1)
     {
-        cerr << "Errore creazione socket.\n";
+        cerr << "Error creating socket.\n";
         return 1;
     }
 
@@ -91,14 +89,14 @@ int main()
 
     if (::bind(serverSocket, (sockaddr *)&serverAddr, sizeof(serverAddr)) == -1)
     {
-        cerr << "Errore bind().\n";
+        cerr << "Error on bind().\n";
         close(serverSocket);
         return 1;
     }
 
     if (listen(serverSocket, SOMAXCONN) == -1)
     {
-        cerr << "Errore listen().\n";
+        cerr << "Error on listen().\n";
         close(serverSocket);
         return 1;
     }
@@ -112,7 +110,7 @@ int main()
         int clientSocket = accept(serverSocket, (sockaddr *)&clientAddr, &clientAddrSize);
         if (clientSocket == -1)
         {
-            cerr << "Errore accept().\n";
+            cerr << "Error on accept().\n";
             continue;
         }
         handleClient(clientSocket);

@@ -1,5 +1,6 @@
 #include "dss_server.h"
 #include "utility.h"
+#include "user.h"
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -17,12 +18,12 @@ string create_keys(const string &user)
 
     if (fs::exists(privKeyPath) && fs::exists(pubKeyPath))
     {
-        return "Chiavi già esistenti per l'utente '" + user + "'.";
+        return "Keys already exist for user '" + user + "'.";
     }
 
     EVP_PKEY *pkey = EVP_RSA_gen(2048);
     if (!pkey)
-        return "Errore nella generazione delle chiavi.";
+        return "Error generating keys.";
 
     FILE *privFile = fopen(privKeyPath.c_str(), "wb");
     if (!privFile || !PEM_write_PrivateKey(privFile, pkey, nullptr, nullptr, 0, nullptr, nullptr))
@@ -30,7 +31,7 @@ string create_keys(const string &user)
         EVP_PKEY_free(pkey);
         if (privFile)
             fclose(privFile);
-        return "Errore nel salvataggio della chiave privata.";
+        return "Error saving the private key.";
     }
     fclose(privFile);
 
@@ -40,12 +41,12 @@ string create_keys(const string &user)
         EVP_PKEY_free(pkey);
         if (pubFile)
             fclose(pubFile);
-        return "Errore nel salvataggio della chiave pubblica.";
+        return "Error saving the public key.";
     }
     fclose(pubFile);
 
     EVP_PKEY_free(pkey);
-    return "Chiavi generate con successo per '" + user + "'.";
+    return "Keys successfully generated for '" + user + "'.";
 }
 
 // === GetPublicKey ===
@@ -55,13 +56,13 @@ string get_public_key(const string &user)
 
     if (!fs::exists(pubKeyPath))
     {
-        return "Chiave pubblica non trovata per '" + user + "'.";
+        return "Public key not found for '" + user + "'.";
     }
 
     ifstream in(pubKeyPath);
     if (!in)
     {
-        return "Errore nell'apertura della chiave pubblica.";
+        return "Error opening the public key.";
     }
 
     stringstream ss;
@@ -77,7 +78,7 @@ string sign_document(const string &user, const string &document)
     FILE *privKeyFile = fopen(privKeyPath.c_str(), "rb");
     if (!privKeyFile)
     {
-        return "Errore: impossibile aprire la chiave privata per l'utente '" + user + "'.";
+        return "Error: could not open private key for user '" + user + "'.";
     }
 
     EVP_PKEY *privKey = PEM_read_PrivateKey(privKeyFile, nullptr, nullptr, nullptr);
@@ -85,7 +86,7 @@ string sign_document(const string &user, const string &document)
 
     if (!privKey)
     {
-        return "Errore: lettura della chiave privata fallita.";
+        return "Error: failed to read the private key.";
     }
 
     vector<unsigned char> digest_bytes = hex_to_bytes(document);
@@ -98,7 +99,7 @@ string sign_document(const string &user, const string &document)
 
     if (!success)
     {
-        return "Errore: firma fallita.";
+        return "Error: signing failed.";
     }
 
     stringstream ss;
@@ -114,6 +115,9 @@ string delete_keys(const string &user)
 {
     string privKeyPath = get_key_path(user, "priv.pem");
     string pubKeyPath = get_key_path(user, "pub.pem");
+    const string userPath = "users/" + user + ".txt";
+    const string updateUserPath = "users/" + user + "_tmp.txt";
+    string temporaryPassword;
 
     bool deleted = false;
 
@@ -131,10 +135,18 @@ string delete_keys(const string &user)
 
     if (!deleted)
     {
-        return "Nessuna chiave trovata per '" + user + "'.";
+        return "No keys found for '" + user + "'.";
     }
 
-    return "Chiavi eliminate per '" + user + "'.";
+    temporaryPassword = createUserFile(user + "_tmp");
+
+    if (rename(updateUserPath.c_str(), userPath.c_str()) != 0)
+    {
+        // Errore nella rinominazione del file
+        return "Error modifying the file.\n";
+    }
+
+    return "Keys deleted for '" + user + "'. The new password is: " + temporaryPassword;
 }
 
 bool check_user(const string &username)
@@ -193,7 +205,7 @@ string change_temporary_password(const string &username, const string &new_passw
     if (!new_file.is_open())
     {
         // Impossibile aprire il file
-        return "Errore nella modifica della password temporanea.\n";
+        return "Error changing the temporary password.\n";
     }
 
     new_file << "password: " << new_password << '\n';
@@ -204,10 +216,10 @@ string change_temporary_password(const string &username, const string &new_passw
     if (rename(new_path.c_str(), path.c_str()) != 0)
     {
         // Errore nella rinominazione del file
-        return "Errore nella modifica della password temporanea.\n";
+        return "Error changing the temporary password.\n";
     }
 
-    return "Password modificata.\n";
+    return "Password successfully updated..\n";
 }
 
 bool check_password(const string &username, const string &password)
@@ -221,7 +233,6 @@ bool check_password(const string &username, const string &password)
 
     if (!file.is_open())
     {
-        // Impossibile aprire il file
         return false;
     }
 
@@ -244,7 +255,7 @@ string login(const string &username, const string &password)
 
     if (!check_user(username))
     {
-        return "Username e/o password non corretti/o.\n";
+        return "Invalid username or password.\n";
     }
 
     ret = first_login(username);
@@ -253,13 +264,13 @@ string login(const string &username, const string &password)
     {
         if (!check_password(username, password))
         {
-            return "Username e/o password non corretti/o.\n";
+            return "Invalid username or password.\n";
         }
 
         if (ret == 1)
         {
-            return "Inserisci nuova password: ";
+            return "First login detected. Please set a new password: ";
         }
     }
-    return "Errore nell'apertura del file.\n";
+    return "Error opening the file.\n";
 }

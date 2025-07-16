@@ -14,12 +14,12 @@ CXXFLAGS = -std=c++17 -Wall -I$(OPENSSL_INC) -I$(INCLUDE_LOCAL)
 LDFLAGS = -L$(OPENSSL_LIB) -lssl -lcrypto
 
 # === File oggetto ===
-SERVER_OBJS = $(OBJ)/main.o $(OBJ)/dss_server.o $(OBJ)/utility.o
+SERVER_OBJS = $(OBJ)/main.o $(OBJ)/dss_server.o $(OBJ)/utility.o $(OBJ)/user.o
 CLIENT_OBJS = $(OBJ)/main_client.o $(OBJ)/utility.o $(OBJ)/user.o
-GENERATE_USER_OBJS = $(OBJ)/generate_user.o $(OBJ)/utility.o
+OFFLINE_OBJS = $(OBJ)/offline_reg.o $(OBJ)/user.o $(OBJ)/utility.o
 
 # === Targets ===
-all: dirs server client generate_user
+all: dirs server client offline_reg secure_test
 
 dirs:
 	mkdir -p $(OBJ) $(BIN) keys
@@ -35,8 +35,12 @@ $(OBJ)/dss_server.o: $(SRC)/dss_server.cpp
 $(OBJ)/main_client.o: $(SRC)/main_client.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# === Compilazione generate_user ===
-$(OBJ)/generate_user.o: $(SRC)/generate_user.cpp
+# === Compilazione registrazione offline ===
+$(OBJ)/offline_reg.o: $(SRC)/offline_reg.cpp $(INCLUDE_LOCAL)/user.h
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# === Compilazione secure_test ===
+$(OBJ)/secure_test.o: $(SRC)/secure_test.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # === Compilazione utility ===
@@ -53,10 +57,10 @@ server: $(SERVER_OBJS)
 client: $(CLIENT_OBJS)
 	$(CXX) $^ -o $(BIN)/client $(LDFLAGS)
 
-generate_user: $(GENERATE_USER_OBJS)
-	$(CXX) $^ -o $(BIN)/generate_user $(LDFLAGS)
+offline_reg: $(OFFLINE_OBJS)
+	$(CXX) $^ -o $(BIN)/offline_reg $(LDFLAGS)
 
 clean:
-	rm -rf $(OBJ)/*.o $(BIN)/server $(BIN)/client $(BIN)/generate_user
+	rm -rf $(OBJ)/*.o $(BIN)/server $(BIN)/client $(BIN)/offline_reg $(BIN)/secure_test
 
-.PHONY: all dirs clean server client generate_user
+.PHONY: all dirs clean server client offline_reg secure_test
