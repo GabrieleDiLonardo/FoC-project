@@ -1,78 +1,81 @@
+// utility.h
+
 #ifndef UTILITY_H
 #define UTILITY_H
 
-
-#include <iostream>
 #include <string>
-#include <chrono>
-#include <sstream>
-#include <iomanip>
-#include <openssl/rand.h>
-#include <openssl/kdf.h>
+#include <vector>
 #include <openssl/evp.h>
-#include <openssl/err.h>
-#include <openssl/core_names.h>
-#include <openssl/params.h>
-#include <openssl/pem.h>
-#include <openssl/opensslv.h>
-#include <openssl/param_build.h> 
-#include <openssl/sha.h>
-
+#include <cstddef>
+#include <cstdint>
+#include "secure_channel.h"
+#include <sys/socket.h>
+#include <arpa/inet.h>
+using namespace std;
 #define PORT 8080
 
-using namespace std;
 
+// === RSA-OAEP ===
+std::vector<unsigned char> rsa_oaep_encrypt(EVP_PKEY* pub, const std::vector<unsigned char>& pt);
+std::vector<unsigned char> rsa_oaep_decrypt(EVP_PKEY* priv, const std::vector<unsigned char>& ct);
 
-// Funzione che ritorna il timestamp corrente in secondi
-inline uint64_t get_current_unix_timestamp();
+// === PEM Key Loaders ===
+EVP_PKEY* load_public_key(const std::string& file);
+EVP_PKEY* load_private_key(const std::string& file);
 
-// Funzione generatrice di p e g
-EVP_PKEY *generate_dh_params();
+// === DH (Diffie-Hellman) Key Exchange Helpers ===
+EVP_PKEY* generate_dh_params();
+EVP_PKEY* generate_dh_keypair(EVP_PKEY* params);
+EVP_PKEY* import_dh_pubkey(const unsigned char* pubkey_data, size_t pubkey_len);
+unsigned char* derive_shared_secret(EVP_PKEY* priv, EVP_PKEY* peer, size_t& secret_len);
 
-// Funzione generatrice di a o b e di g^a mod p o g^b mod p
-EVP_PKEY *generate_dh_keypair(EVP_PKEY *dh_params);
+// === Key Derivation Function ===
+std::vector<unsigned char> kdf(const std::vector<unsigned char>& shared,
+                               const std::string& user,
+                               uint64_t n1, uint64_t n2);
 
-bool sign_data(
-    EVP_PKEY *dss_private_key,
-    const unsigned char *data,
-    size_t data_len,
-    unsigned char *signature,
-    unsigned int &signature_len
-);
+// === AES-256-GCM Encryption/Decryption ===
+bool aes_encrypt_gcm(const unsigned char* key,
+                     const unsigned char* pt, int pt_len,
+                     const unsigned char* iv, int iv_len,
+                     const unsigned char* aad, int aad_len,
+                     unsigned char* ct, unsigned char* tag);
 
+bool aes_decrypt_gcm(const unsigned char* ct, int ct_len,
+                     const unsigned char* iv, int iv_len,
+                     const unsigned char* tag,
+                     const unsigned char* key,
+                     const unsigned char* aad, int aad_len,
+                     unsigned char* pt);
 
-bool verify_signature(
-    const unsigned char *dh_pubkey, size_t dh_pubkey_len, /* dati firmati da verificare (g^b mod p) */
-    const unsigned char *signature, size_t signature_len, /* firma ricevuta dal DSS */
-    const std::string &public_key_file = "../public.pem" /* file da cui ricavare chiave pubblica DSS */
-    ); 
+// === SHA-256 Hashing ===
+std::string hash_password(const std::string& pw);
+std::vector<unsigned char> hex_to_bytes(const std::string& hex);
 
-// Funzione per calcolare la chiave di sessione condivisa
-unsigned char *derive_shared_secret(EVP_PKEY *my_keypair, EVP_PKEY *peer_pubkey, size_t &secret_len);
+// === RSA Sign/Verify ===
+bool sign_data(EVP_PKEY* priv,
+               const unsigned char* data, size_t data_len,
+               unsigned char* sig, size_t& sig_len);
 
-// Funzione per cifratura con AES a 128 bit e MAC
-bool aes_encrypt_gcm(
-    const unsigned char *key, const unsigned char *plaintext, int plaintext_len,
-    const unsigned char *iv, const unsigned char *aad, int aad_len,
-    unsigned char *ciphertext, unsigned char *tag, int &ciphertext_len
-    );
+bool verify_signature(EVP_PKEY* pub,
+                      const unsigned char* data, size_t data_len,
+                      const unsigned char* sig, size_t sig_len);
 
-// Funzione per decifratura con AES a 128 bit e MAC
-bool aes_decrypt_gcm(
-    const unsigned char *ciphertext, int ciphertext_len,
-    const unsigned char *aad, int aad_len,
-    const unsigned char *tag,
-    const unsigned char *key,
-    const unsigned char *iv, int iv_len,
-    unsigned char *plaintext, int &plaintext_len, uint64_t max_delay
-    );
-
-string hash_password(const string &password);
-
-// Funzione di supporto: converte byte vector -> string
+/*DAL VECCHIO FILE*/
 string toHex(const vector<unsigned char> &data);
 
-// Funzione di supporto: converte hex string -> byte vector
-vector<unsigned char> hex_to_bytes(const string &hex);
+//WRAPPER
+void gen_iv(unsigned char iv[12]);
 
-#endif
+/// High‑level encrypted send/recv
+bool sendEncryptedMessage(int sock,
+                          const std::vector<unsigned char>& K,
+                          const std::string& plaintext);
+
+bool recvEncryptedMessage(int sock,
+                          const std::vector<unsigned char>& K,
+                          std::string &out_plain);
+
+void dumpHex(const unsigned char* buf, size_t len, const std::string& title);
+
+#endif // UTILITY_H

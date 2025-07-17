@@ -1,66 +1,67 @@
 # === Percorsi OpenSSL ===
-OPENSSL_INC = /opt/homebrew/opt/openssl@3/include
-OPENSSL_LIB = /opt/homebrew/opt/openssl@3/lib
+OPENSSL_INC   = /opt/homebrew/opt/openssl@3/include
+OPENSSL_LIB   = /opt/homebrew/opt/openssl@3/lib
 
 # === Directory progetto ===
-SRC  = src
-OBJ  = obj
-BIN  = bin
+SRC           = src
+OBJ           = obj
+BIN           = bin
 INCLUDE_LOCAL = include
 
 # === Compiler & linker ===
-CXX = g++
+CXX      = g++
 CXXFLAGS = -std=c++17 -Wall -I$(OPENSSL_INC) -I$(INCLUDE_LOCAL)
-LDFLAGS = -L$(OPENSSL_LIB) -lssl -lcrypto
+LDFLAGS  = -L$(OPENSSL_LIB) -lssl -lcrypto
 
 # === File oggetto ===
-SERVER_OBJS = $(OBJ)/main.o $(OBJ)/dss_server.o $(OBJ)/utility.o $(OBJ)/user.o
-CLIENT_OBJS = $(OBJ)/main_client.o $(OBJ)/utility.o $(OBJ)/user.o
-OFFLINE_OBJS = $(OBJ)/offline_reg.o $(OBJ)/user.o $(OBJ)/utility.o
+SERVER_OBJS = \
+    $(OBJ)/main.o \
+    $(OBJ)/dss_server.o \
+    $(OBJ)/secure_channel.o \
+    $(OBJ)/utility.o \
+    $(OBJ)/user.o
 
-# === Targets ===
-all: dirs server client offline_reg secure_test
+CLIENT_OBJS = \
+    $(OBJ)/main_client.o \
+    $(OBJ)/secure_channel.o \
+    $(OBJ)/utility.o \
+    $(OBJ)/user.o
 
+# === Targets di default ===
+all: dirs server client
+
+# crea le directory necessarie
 dirs:
-	mkdir -p $(OBJ) $(BIN) keys
+	mkdir -p $(OBJ) $(BIN)
 
-# === Compilazione Server ===
-$(OBJ)/main.o: $(SRC)/main.cpp
+# --- Regole di compilazione .cpp → .o ---
+$(OBJ)/main.o: $(SRC)/main.cpp $(INCLUDE_LOCAL)/dss_server.h $(INCLUDE_LOCAL)/secure_channel.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-$(OBJ)/dss_server.o: $(SRC)/dss_server.cpp
+$(OBJ)/dss_server.o: $(SRC)/dss_server.cpp $(INCLUDE_LOCAL)/dss_server.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# === Compilazione Client ===
-$(OBJ)/main_client.o: $(SRC)/main_client.cpp
+$(OBJ)/secure_channel.o: $(SRC)/secure_channel.cpp $(INCLUDE_LOCAL)/secure_channel.h $(INCLUDE_LOCAL)/utility.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# === Compilazione registrazione offline ===
-$(OBJ)/offline_reg.o: $(SRC)/offline_reg.cpp $(INCLUDE_LOCAL)/user.h
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-# === Compilazione secure_test ===
-$(OBJ)/secure_test.o: $(SRC)/secure_test.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-# === Compilazione utility ===
 $(OBJ)/utility.o: $(SRC)/utility.cpp $(INCLUDE_LOCAL)/utility.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(OBJ)/user.o: $(SRC)/user.cpp $(INCLUDE_LOCAL)/user.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# === Link finali ===
+$(OBJ)/main_client.o: $(SRC)/main_client.cpp $(INCLUDE_LOCAL)/secure_channel.h $(INCLUDE_LOCAL)/utility.h
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# --- Link eseguibili ---
 server: $(SERVER_OBJS)
 	$(CXX) $^ -o $(BIN)/server $(LDFLAGS)
 
 client: $(CLIENT_OBJS)
 	$(CXX) $^ -o $(BIN)/client $(LDFLAGS)
 
-offline_reg: $(OFFLINE_OBJS)
-	$(CXX) $^ -o $(BIN)/offline_reg $(LDFLAGS)
-
+# --- Pulizia ---
 clean:
-	rm -rf $(OBJ)/*.o $(BIN)/server $(BIN)/client $(BIN)/offline_reg $(BIN)/secure_test
+	rm -rf $(OBJ)/*.o $(BIN)/server $(BIN)/client
 
-.PHONY: all dirs clean server client offline_reg secure_test
+.PHONY: all dirs clean server client
