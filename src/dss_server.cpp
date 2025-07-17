@@ -92,10 +92,9 @@ string sign_document(const string &user, const string &document)
     vector<unsigned char> digest_bytes = hex_to_bytes(document);
 
     vector<unsigned char> signature(EVP_PKEY_size(privKey));
-    unsigned int sig_len = 0;
+    size_t sig_len = 0;
 
-    // bool success = sign_data(privKey, digest_bytes.data(), digest_bytes.size(), signature.data(), sig_len);
-    bool success = false;
+    bool success = sign_data(privKey, digest_bytes.data(), digest_bytes.size(), signature.data(), sig_len);
     EVP_PKEY_free(privKey);
 
     if (!success)

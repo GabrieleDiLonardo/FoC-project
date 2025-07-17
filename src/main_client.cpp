@@ -78,7 +78,6 @@ int main() {
 
         // receive encrypted response
         if (!recvEncryptedMessage(sock, session_key, line)) break;
-        cout << line << "\n";
         if (line == "Invalid username or password.") {
             cout << "Username: "; getline(cin, username);
             cout << "Password: "; getline(cin, password);
@@ -87,12 +86,13 @@ int main() {
         }
         if (line == "First login detected. Please set a new password: ") {
             do {
-                cout << "> "; getline(cin, password);
+                cout << line << "\n";
+                cout << "> "; 
+                getline(cin, password);
                 hashed_pw = hash_password(password);
                 req = "UpdatePassword " + username + " " + hashed_pw + "\n";
                 sendEncryptedMessage(sock, session_key, req);
                 recvEncryptedMessage(sock, session_key, line);
-                cout << line << "\n";
             } while (line != "Password successfully updated..\n");
         }
         break;
