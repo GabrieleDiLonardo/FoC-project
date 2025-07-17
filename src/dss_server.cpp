@@ -94,7 +94,7 @@ string sign_document(const string &user, const string &document)
     vector<unsigned char> signature(EVP_PKEY_size(privKey));
     unsigned int sig_len = 0;
 
-    //bool success = sign_data(privKey, digest_bytes.data(), digest_bytes.size(), signature.data(), sig_len);
+    // bool success = sign_data(privKey, digest_bytes.data(), digest_bytes.size(), signature.data(), sig_len);
     bool success = false;
     EVP_PKEY_free(privKey);
 
@@ -252,31 +252,18 @@ bool check_password(const string &username, const string &password)
 
 string login(const string &username, const string &password)
 {
-    int ret = 0;
-    /*
-    if (!check_user(username))
-    {
-        return "Invalid username or password.\n";
-    }
-    */
+    int ret = first_login(username);
 
-    ret = first_login(username);
-
-    if (ret != -1)
+    if (ret == 1)
     {
-        /*
-        if (!check_password(username, password))
-        {
-            return "Invalid username or password.\n";
-        }
-        */
-        if (ret == 1)
-        {
-            return "First login detected. Please set a new password: ";
-        }
-        if(ret == 0){
-            return "Modifica password non necessaria";
-        }
+        return "First login detected. Please set a new password: ";
     }
-    return "Error opening the file.\n";
+    else if (ret == 0)
+    {
+        return "Password already modified.\n";
+    }
+    else
+    {
+        return "Error opening the file.\n";
+    }
 }

@@ -85,7 +85,7 @@ int main() {
             hashed_pw = hash_password(password);
             continue;
         }
-        if (line == "First login detected. Please set a new password:") {
+        if (line == "First login detected. Please set a new password: ") {
             do {
                 cout << "> "; getline(cin, password);
                 hashed_pw = hash_password(password);
