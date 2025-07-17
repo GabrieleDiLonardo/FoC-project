@@ -271,9 +271,7 @@ bool aes_encrypt_gcm(const unsigned char* key,
     int len;
     if(aad_len) EVP_EncryptUpdate(c,NULL,&len,aad,aad_len);
     EVP_EncryptUpdate(c,ct,&len,pt,pt_len);
-    int clen=len;
     EVP_EncryptFinal_ex(c,ct+len,&len);
-    clen+=len;
     EVP_CIPHER_CTX_ctrl(c,EVP_CTRL_GCM_GET_TAG,16,tag);
     EVP_CIPHER_CTX_free(c);
     return true;
