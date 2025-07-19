@@ -29,6 +29,42 @@ void log_openssl_errors(const char* filename) {
         fclose(err);
     }
 }
+// --- HELPERS AGGIUNTI ---
+static void add_padded_message(std::vector<unsigned char>& dest, 
+                             const unsigned char* data, 
+                             size_t data_size) {
+    // Aggiunge: [4 byte size][data][padding fino a 32 byte]
+    uint32_t net_size = htonl(static_cast<uint32_t>(data_size));
+    dest.insert(dest.end(), (unsigned char*)&net_size, (unsigned char*)&net_size + 4);
+    dest.insert(dest.end(), data, data + data_size);
+    
+    // Calcola padding necessario (almeno 32 byte totali)
+    size_t total_size = 4 + data_size;
+    size_t padding_needed = total_size >= 32 ? 0 : 32 - total_size;
+    
+    // Aggiungi padding casuale
+    std::random_device rd;
+    std::uniform_int_distribution<unsigned char> dist(0, 255);
+    for (size_t i = 0; i < padding_needed; ++i) {
+        dest.push_back(dist(rd));
+    }
+}
+
+static bool extract_padded_message(const std::vector<unsigned char>& src,
+                                 std::vector<unsigned char>& dest) {
+    // Estrae: [4 byte size][data][padding]
+    if (src.size() < 4) return false;
+    
+    uint32_t net_size;
+    memcpy(&net_size, src.data(), 4);
+    size_t data_size = ntohl(net_size);
+    
+    if (4 + data_size > src.size()) return false;
+    
+    dest.assign(src.begin() + 4, src.begin() + 4 + data_size);
+    return true;
+}
+
 
 
 
@@ -170,7 +206,6 @@ bool client_step2_recv_challenge(int sock, const std::string& pass, uint64_t n1,
     return (rn1 == n1);
 }
 
-
 // --- CLIENT STEP 3: DH gen, send AES(user || n2 || pubB) ---
 bool client_step3_send_dh(int sock, const std::string& user, uint64_t n2,
                          const std::vector<unsigned char>& key,
@@ -232,152 +267,105 @@ bool client_step3_send_dh(int sock, const std::string& user, uint64_t n2,
 
     return send_msg(sock, msg);
 }
+
+
+
 bool client_step4_recv_pubA(int sock, const std::vector<unsigned char>& key,
                           EVP_PKEY*& pubA_out) {
-    std::cout << "[DBG CLIENT] Step4: receiving server's DH public key\n";
-
-    // Ricevi il messaggio cifrato
     std::vector<unsigned char> encrypted_msg;
-    if (!recv_msg(sock, encrypted_msg)) {
-        std::cerr << "[ERROR CLIENT] Failed to receive encrypted message\n";
-        return false;
-    }
+    if (!recv_msg(sock, encrypted_msg)) return false;
 
-    // Verifica dimensione minima (IV + TAG)
-    if (encrypted_msg.size() < 28) {  // 12 (IV) + 16 (TAG)
-        std::cerr << "[ERROR CLIENT] Message too short\n";
-        return false;
-    }
+    if (encrypted_msg.size() < 28) return false; // IV + TAG
 
-    // Estrai componenti
     unsigned char iv[12], tag[16];
     memcpy(iv, encrypted_msg.data(), 12);
     memcpy(tag, encrypted_msg.data() + 12, 16);
     std::vector<unsigned char> ct(encrypted_msg.begin() + 28, encrypted_msg.end());
-    std::vector<unsigned char> pt(ct.size());
-
-    // Decifra il messaggio
     
-    if (!aes_decrypt_gcm(
-        ct.data(),                     // ciphertext
-        static_cast<int>(ct.size()),  // lunghezza ciphertext
-        iv,                            // IV
-        12,                            // lunghezza IV
-        tag,                           // TAG
-        key.data(),                    // chiave
-        iv,                            // AAD (usiamo IV come AAD)
-        12,                            // lunghezza AAD
-        pt.data())) {                  // output buffer
-        std::cerr << "[ERROR CLIENT] Decryption failed\n";
+    // Decifra
+    std::vector<unsigned char> pt(ct.size());
+    const std::string aad = "STEP4";
+    if (!aes_decrypt_gcm(ct.data(), ct.size(), iv, 12, tag, key.data(),
+                        (const unsigned char*)aad.data(), aad.size(), pt.data()))
+        return false;
+
+    // Estrai la chiave pubblica dal messaggio strutturato
+    std::vector<unsigned char> pub_key_data;
+    if (!extract_padded_message(pt, pub_key_data)) {
+        std::cerr << "[ERROR] Invalid pubA format\n";
         return false;
     }
 
-
-    // DEBUG: Stampa i byte ricevuti
-    std::cout << "[DBG CLIENT] Decrypted DH public key (" << pt.size() << " bytes): ";
-    for (size_t i = 0; i < std::min(pt.size(), (size_t)16); ++i) {
-        printf("%02x ", pt[i]);
-    }
-    std::cout << (pt.size() > 16 ? "..." : "") << "\n";
-
-    // Importa la chiave pubblica DH
-    EVP_PKEY* imported_key = import_dh_pubkey(pt.data(), pt.size());
-    if (!imported_key) {
-        std::cerr << "[ERROR CLIENT] Critical: Failed to import DH public key\n";
+    // Importa la chiave pubblica DH (solo dati utili, senza padding)
+    pubA_out = import_dh_pubkey(pub_key_data.data(), pub_key_data.size());
+    if (!pubA_out) {
+        std::cerr << "[ERROR] Failed to import DH public key\n";
         ERR_print_errors_fp(stderr);
-        
-        // DEBUG aggiuntivo
-        if (pt.empty()) {
-            std::cerr << "[DEBUG] Empty public key data received\n";
-        } else {
-            std::cerr << "[DEBUG] Public key data looks invalid or corrupted\n";
-        }
-        
         return false;
     }
 
-    // Verifica che la chiave importata sia effettivamente DH
-    if (EVP_PKEY_id(imported_key) != EVP_PKEY_DH) {
-        std::cerr << "[ERROR CLIENT] Imported key is not a DH key\n";
-        EVP_PKEY_free(imported_key);
-        return false;
-    }
-
-    pubA_out = imported_key;
-    std::cout << "[DBG CLIENT] Successfully imported server's public DH key\n";
     return true;
 }
-
-
 // --- CLIENT STEP 5: recv AES(n3) ---
 bool client_step5_recv_nonce3(int sock, const std::vector<unsigned char>& K, uint64_t& n3) {
-    // Ricevi il messaggio (dovrebbe essere IV + TAG + CIPHERTEXT)
     std::vector<unsigned char> b5;
-    if (!recv_msg(sock, b5)) {
-        std::cerr << "[ERROR CLIENT] Failed to receive message\n";
-        return false;
-    }
+    if (!recv_msg(sock, b5)) return false;
 
-    // Verifica dimensione minima (IV 12 + TAG 16 + almeno 8 byte ciphertext)
-    if (b5.size() < 36) {  // 12 (IV) + 16 (TAG) + 8 (minimo per un nonce)
-        std::cerr << "[ERROR CLIENT] Message too short. Received: " << b5.size() << " bytes\n";
-        return false;
-    }
+    if (b5.size() < 60) return false; // IV(12) + TAG(16) + 32 byte ciphertext
 
-    // Estrai componenti
     unsigned char iv[12], tag[16];
     memcpy(iv, b5.data(), 12);
     memcpy(tag, b5.data() + 12, 16);
     std::vector<unsigned char> ct(b5.begin() + 28, b5.end());
-
-    // DEBUG: Stampa le dimensioni
-    std::cout << "[DEBUG] Received: IV=12, TAG=16, CT=" << ct.size() << " bytes\n";
-
-    // Buffer per il plaintext (dovremmo aspettarci 8 byte per un uint64_t)
-    unsigned char pt[8];
     
-    // Decifra con controlli aggiuntivi
-    if (!aes_decrypt_gcm(ct.data(),       // ciphertext
-                        ct.size(),        // ciphertext length
-                        iv,               // IV
-                        12,               // IV length
-                        tag,              // authentication tag
-                        K.data(),         // key
-                        iv,               // AAD (usiamo IV come Additional Auth Data)
-                        12,               // AAD length
-                        pt)) {            // output buffer
-        std::cerr << "[ERROR CLIENT] Decryption failed. Possible causes:\n"
-                 << " - Invalid/Mismatched key\n"
-                 << " - Corrupted data\n"
-                 << " - Authentication failure (wrong tag)\n";
-        ERR_print_errors_fp(stderr);  // Mostra eventuali errori OpenSSL
+    // Decifra
+    std::vector<unsigned char> pt(ct.size());
+    const std::string aad = "STEP5";
+    if (!aes_decrypt_gcm(ct.data(), ct.size(), iv, 12, tag, K.data(),
+                        (const unsigned char*)aad.data(), aad.size(), pt.data()))
+        return false;
+
+    // Estrai il nonce dal messaggio strutturato
+    std::vector<unsigned char> nonce_data;
+    if (!extract_padded_message(pt, nonce_data) || nonce_data.size() != 8) {
+        std::cerr << "[ERROR] Invalid nonce3 format\n";
         return false;
     }
 
-    // Converti il plaintext in uint64_t (big-endian)
-    n3 = read_be64(pt);
-    std::cout << "[DBG CLIENT] Step5 successfully decrypted n3=" << n3 << "\n";
+    n3 = read_be64(nonce_data.data());
     return true;
 }
-
 // --- CLIENT STEP 6: send AES(n3+1) ---
 bool client_step6_send_nonce3plus1(int sock, const std::vector<unsigned char>& K, uint64_t n3) {
     uint64_t n3p = n3 + 1;
-    unsigned char pt[8]; write_be64(pt, n3p);
+    unsigned char n3p_buf[8];
+    write_be64(n3p_buf, n3p);
 
-    unsigned char iv[12], tag[16], ct[8];
+    // Costruisci plaintext strutturato
+    std::vector<unsigned char> pt;
+    add_padded_message(pt, n3p_buf, 8); // Aggiunge size(8) + data + padding
+
+    // Cifra
+    unsigned char iv[12], tag[16];
     gen_iv(iv);
-    aes_encrypt_gcm(K.data(), pt, 8, iv, 12, iv, 12, ct, tag);
+    std::vector<unsigned char> ct(pt.size());
+    const std::string aad = "STEP6";
+    if (!aes_encrypt_gcm(K.data(), pt.data(), pt.size(), iv, 12,
+                        (const unsigned char*)aad.data(), aad.size(), ct.data(), tag))
+        return false;
 
-    std::vector<unsigned char> msg(iv, iv + 12);
+    // Costruisci messaggio finale
+    std::vector<unsigned char> msg;
+    msg.insert(msg.end(), iv, iv + 12);
     msg.insert(msg.end(), tag, tag + 16);
-    msg.insert(msg.end(), ct, ct + 8);
+    msg.insert(msg.end(), ct.begin(), ct.end());
+    
     return send_msg(sock, msg);
 }
 
 // --- CLIENT STEP 7: recv AES("OK"/"RETRY" || n3+2), verify signature ---
 bool client_step7_recv_result(int sock, const std::vector<unsigned char>& K,
-                              bool& success, uint64_t& n3p2) {
+                            bool& success, uint64_t& n3p2) {
     std::vector<unsigned char> b7;
     if (!recv_msg(sock, b7)) return false;
 
@@ -390,64 +378,141 @@ bool client_step7_recv_result(int sock, const std::vector<unsigned char>& K,
     memcpy(tag, b7.data() + offset, 16); offset += 16;
     std::vector<unsigned char> ct(b7.begin() + offset, b7.end());
 
+    // Verifica firma
     EVP_PKEY* spub = load_public_key("keys/server_pub.pem");
-    if (!verify_signature(spub, ct.data(), ct.size(), sig.data(), sig_len)) return false;
+    if (!verify_signature(spub, ct.data(), ct.size(), sig.data(), sig_len)) {
+        EVP_PKEY_free(spub);
+        return false;
+    }
     EVP_PKEY_free(spub);
 
+    // Decifra
     std::vector<unsigned char> pt(ct.size());
-    if (!aes_decrypt_gcm(ct.data(), ct.size(), iv, 12, tag, K.data(), iv, 12, pt.data()))
+    const std::string aad = "STEP7";
+    if (!aes_decrypt_gcm(ct.data(), ct.size(), iv, 12, tag, K.data(),
+                        (const unsigned char*)aad.data(), aad.size(), pt.data()))
         return false;
 
-    success = (pt[0] == 'O');
-    n3p2 = read_be64(pt.data() + 2);
-    std::cout << "[DBG CLIENT] Step7 OK=" << success << " n3+2=" << n3p2 << "\n";
-    return true;
-}
-
-int apertura_canale_sicuro_client(int sock, const std::string& user, const std::string& pass, std::vector<unsigned char>& session_key) {
-    std::cout << "[DBG CLIENT] Start\n";
-    std::cout << "[DBG CLIENT] Username = "<< user << ",Password = "<< pass <<"\n";
-    uint64_t n1;
-    if (!client_step1_send_hello(sock, user, n1)) return -1;
-
-    uint64_t n2;
-    std::vector<unsigned char> key;
-    if (!client_step2_recv_challenge(sock, pass, n1, n2, key)) return -1;
-
-    EVP_PKEY* dhk = nullptr;
-    std::vector<unsigned char> pubB;
-    if (!client_step3_send_dh(sock, user, n2, key, dhk, pubB)) return -1;
-    std::cout <<"[DBG CLIENT] step3\n";
-    EVP_PKEY* pubA = nullptr;
-    if (!client_step4_recv_pubA(sock, key, pubA)) return -1;
-    std::cout <<"[DBG CLIENT] step4\n";
-    // derive shared secret
-    size_t slen;
-    unsigned char* sec = derive_shared_secret(dhk, pubA, slen);
-    std::vector<unsigned char> K = kdf({sec, sec + slen}, user, n1, n2);
-    OPENSSL_free(sec);
-    EVP_PKEY_free(pubA);
-    EVP_PKEY_free(dhk);
-
-    uint64_t n3;
-    if (!client_step5_recv_nonce3(sock, K, n3)) return -1;
-    std::cout <<"[DBG CLIENT] step5\n";
-    if (!client_step6_send_nonce3plus1(sock, K, n3)) return -1;
-    std::cout <<"[DBG CLIENT] step6 \n";
-    bool success;
-    uint64_t n3p2;
-    if (!client_step7_recv_result(sock, K, success, n3p2)) return -1;
-
-    if (!success) {
-        std::cerr << "[DBG CLIENT] RETRY handshake\n";
-        return -1;
-        //return apertura_canale_sicuro_client(sock, user, pass);  // retry
+    // Estrai risultato
+    std::vector<unsigned char> result_data;
+    if (!extract_padded_message(pt, result_data) || result_data.size() < 10) {
+        std::cerr << "[ERROR] Invalid result format\n";
+        return false;
     }
 
-    std::cout << "[DBG CLIENT] Handshake complete\n";
-    // handshake successful: hand back the key
-    session_key = std::move(K);
-    return 0;
+    success = (result_data[0] == 'O' && result_data[1] == 'K');
+    n3p2 = read_be64(result_data.data() + 2);
+    return true;
+}
+int apertura_canale_sicuro_client(int sock, const std::string& user, const std::string& pass, std::vector<unsigned char>& session_key) {
+    std::cout << "[DBG CLIENT] Starting secure channel setup\n";
+    
+    // Inizializza tutte le variabili
+    uint64_t n1 = 0, n2 = 0, n3 = 0;
+    std::vector<unsigned char> key;
+    EVP_PKEY* dhk = nullptr;
+    EVP_PKEY* pubA = nullptr;
+    std::vector<unsigned char> pubB;
+    unsigned char* sec = nullptr;
+    int ret = -1; // Valore di ritorno di default (errore)
+    bool success = false;
+    uint64_t n3p2 = 0;
+
+    try {
+        // Step 1: Invia HELLO + n1 + username
+        if (!client_step1_send_hello(sock, user, n1)) {
+            std::cerr << "[ERROR CLIENT] Step1 failed - HELLO message failed\n";
+            log_openssl_errors("client_errors.log");
+            throw std::runtime_error("Step1 failed");
+        }
+
+        // Step 2: Ricevi e verifica la sfida
+        if (!client_step2_recv_challenge(sock, pass, n1, n2, key)) {
+            std::cerr << "[ERROR CLIENT] Step2 failed - Challenge verification failed\n";
+            log_openssl_errors("client_errors.log");
+            throw std::runtime_error("Step2 failed");
+        }
+
+        // Step 3: Genera e invia chiave DH
+        if (!client_step3_send_dh(sock, user, n2, key, dhk, pubB)) {
+            std::cerr << "[ERROR CLIENT] Step3 failed - DH key exchange failed\n";
+            log_openssl_errors("client_errors.log");
+            throw std::runtime_error("Step3 failed");
+        }
+
+        // Step 4: Ricevi chiave pubblica DH del server
+        if (!client_step4_recv_pubA(sock, key, pubA)) {
+            std::cerr << "[ERROR CLIENT] Step4 failed - Invalid server DH key\n";
+            log_openssl_errors("client_errors.log");
+            throw std::runtime_error("Step4 failed");
+        }
+        /*
+        // Verifica chiave pubblica del server
+        if (!validate_dh_public_key(dhk, pubA)) {
+            std::cerr << "[ERROR CLIENT] Invalid server DH public key\n";
+            throw std::runtime_error("Invalid server DH key");
+        }
+        */
+
+        // Calcola segreto condiviso
+        size_t slen = 0;
+        sec = derive_shared_secret(dhk, pubA, slen);
+        if (!sec || slen == 0) {
+            std::cerr << "[ERROR CLIENT] Shared secret derivation failed\n";
+            log_openssl_errors("client_errors.log");
+            throw std::runtime_error("Shared secret failed");
+        }
+
+        // Deriva la chiave di sessione
+        std::vector<unsigned char> K;
+        try {
+            K = kdf({sec, sec + slen}, user, n1, n2);
+            if (K.empty()) {
+                throw std::runtime_error("Empty KDF result");
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[ERROR CLIENT] KDF failed: " << e.what() << "\n";
+            throw;
+        }
+
+        // Step 5: Ricevi nonce3 dal server
+        if (!client_step5_recv_nonce3(sock, K, n3)) {
+            std::cerr << "[ERROR CLIENT] Step5 failed - Nonce3 receive failed\n";
+            throw std::runtime_error("Step5 failed");
+        }
+
+        // Step 6: Invia nonce3+1 al server
+        if (!client_step6_send_nonce3plus1(sock, K, n3)) {
+            std::cerr << "[ERROR CLIENT] Step6 failed - Nonce3+1 send failed\n";
+            throw std::runtime_error("Step6 failed");
+        }
+
+        // Step 7: Ricevi risultato finale
+        if (!client_step7_recv_result(sock, K, success, n3p2)) {
+            std::cerr << "[ERROR CLIENT] Step7 failed - Final result receive failed\n";
+            throw std::runtime_error("Step7 failed");
+        }
+
+        if (!success) {
+            std::cerr << "[WARN CLIENT] Server requested handshake retry\n";
+            ret = -1;
+        } else {
+            std::cout << "[DBG CLIENT] Handshake completed successfully\n";
+            session_key = std::move(K);
+            ret = 0;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "[FATAL CLIENT] Exception during handshake: " << e.what() << "\n";
+        ret = -1;
+    }
+
+    // Pulizia delle risorse
+    if (sec) OPENSSL_free(sec);
+    if (pubA) EVP_PKEY_free(pubA);
+    if (dhk) EVP_PKEY_free(dhk);
+
+
+    return ret;
 }
 
 
@@ -527,194 +592,262 @@ bool server_step3_recv_dh_pubB(int sock, const std::string& user, uint64_t n2, c
     std::cout << "[DBG SERVER] Step3 done\n";
     return true;
 }
-
-    bool server_step4_send_dh_pubA(int sock, EVP_PKEY*& dhk, 
+// --- SERVER STEP 4: Send AES(pubA) ---
+bool server_step4_send_dh_pubA(int sock, EVP_PKEY*& dhk, 
                               const std::vector<unsigned char>& key) {
-    std::cout << "[DBG SERVER] Step4: generating DH keypair and sending pubA\n";
 
-    // Genera parametri DH
     EVP_PKEY* dh_params = generate_dh_params();
-    if (!dh_params) {
-        std::cerr << "[FATAL SERVER] Failed to generate DH params\n";
-        return false;
-    }
-
-    // Genera coppia di chiavi DH
+    if (!dh_params) return false;
     dhk = generate_dh_keypair(dh_params);
     EVP_PKEY_free(dh_params);
-    if (!dhk) {
-        std::cerr << "[FATAL SERVER] Failed to generate DH keypair\n";
-        return false;
-    }
-
-    // Estrai la chiave pubblica come BIGNUM (stesso approccio del client)
+    if (!dhk) return false;
+    // Estrai chiave pubblica
     BIGNUM* pub_key = nullptr;
     if (EVP_PKEY_get_bn_param(dhk, "pub", &pub_key) != 1) {
-        std::cerr << "[FATAL SERVER] Failed to get DH public key (BN)\n";
-        ERR_print_errors_fp(stderr);
         EVP_PKEY_free(dhk);
         return false;
     }
 
-    // Converti BIGNUM in formato binario
-    std::vector<unsigned char> pubA(BN_num_bytes(pub_key));
-    BN_bn2bin(pub_key, pubA.data());
+    // Converti in formato binario
+    std::vector<unsigned char> pub_key_data(BN_num_bytes(pub_key));
+    BN_bn2bin(pub_key, pub_key_data.data());
     BN_free(pub_key);
 
-    // Debug output
-    std::cout << "[DBG SERVER] pubA length: " << pubA.size() << " bytes\n";
+    // Costruisci plaintext strutturato
+    std::vector<unsigned char> pt;
+    add_padded_message(pt, pub_key_data.data(), pub_key_data.size());
 
-    // Cifra la chiave pubblica con AES-GCM
+    // Cifra
     unsigned char iv[12], tag[16];
     gen_iv(iv);
-    std::vector<unsigned char> ct(pubA.size());
-    if (!aes_encrypt_gcm(key.data(),        // chiave
-                        pubA.data(),        // plaintext
-                        pubA.size(),        // lunghezza plaintext
-                        iv,                 // IV
-                        12,                 // lunghezza IV
-                        iv,                 // AAD
-                        12,                 // lunghezza AAD
-                        ct.data(),          // buffer output ciphertext
-                        tag)) {             // buffer output tag
-        std::cerr << "[FATAL SERVER] AES encryption failed\n";
-        EVP_PKEY_free(dhk);
+    std::vector<unsigned char> ct(pt.size());
+    const std::string aad = "STEP4";
+    if (!aes_encrypt_gcm(key.data(), pt.data(), pt.size(), iv, 12,
+                        (const unsigned char*)aad.data(), aad.size(), ct.data(), tag))
         return false;
-    }
 
-    // Prepara messaggio: IV (12) || TAG (16) || CIPHERTEXT
+    // Costruisci messaggio finale
     std::vector<unsigned char> msg;
     msg.insert(msg.end(), iv, iv + 12);
     msg.insert(msg.end(), tag, tag + 16);
     msg.insert(msg.end(), ct.begin(), ct.end());
+    
+    return send_msg(sock, msg);
+}
+// --- SERVER STEP 5: Send AES(n3) ---
+bool server_step5_send_nonce3(int sock, const std::vector<unsigned char>& K, uint64_t& n3) {
+    n3 = gen_nonce();
+    unsigned char n3_buf[8];
+    write_be64(n3_buf, n3);
 
-    std::cout << "[DBG SERVER] Step4 completed, sending " << msg.size() << " bytes\n";
+    // Costruisci plaintext strutturato
+    std::vector<unsigned char> pt;
+    add_padded_message(pt, n3_buf, 8);
+
+    // Cifra
+    unsigned char iv[12], tag[16];
+    gen_iv(iv);
+    std::vector<unsigned char> ct(pt.size());
+    const std::string aad = "STEP5";
+    if (!aes_encrypt_gcm(K.data(), pt.data(), pt.size(), iv, 12,
+                        (const unsigned char*)aad.data(), aad.size(), ct.data(), tag))
+        return false;
+
+    // Costruisci messaggio finale
+    std::vector<unsigned char> msg;
+    msg.insert(msg.end(), iv, iv + 12);
+    msg.insert(msg.end(), tag, tag + 16);
+    msg.insert(msg.end(), ct.begin(), ct.end());
+    
     return send_msg(sock, msg);
 }
 
-
-bool server_step5_send_nonce3(int sock, const std::vector<unsigned char>& K, uint64_t& n3) {
-    std::cout << "[DBG SERVER] Step5 send nonce3\n";
-    n3 = gen_nonce();
-    unsigned char buf[8]; write_be64(buf, n3);
-    unsigned char iv[12], tag[16], ct[8];
-    gen_iv(iv);
-    aes_encrypt_gcm(K.data(), buf, 8, iv, 12, iv, 12, ct, tag);
-
-    std::vector<unsigned char> o(iv, iv + 12);
-    o.insert(o.end(), tag, tag + 16);
-    o.insert(o.end(), ct, ct + 8);
-    return send_msg(sock, o);
-}
-
+// --- SERVER STEP 6: Receive AES(n3+1) ---
 bool server_step6_recv_nonce3plus1(int sock, const std::vector<unsigned char>& K, uint64_t n3, bool& valid) {
-    std::cout << "[DBG SERVER] Step6 recv n3+1\n";
     std::vector<unsigned char> b;
     if (!recv_msg(sock, b)) return false;
 
-    unsigned char iv[12], tag[16], ct[8], pt[8];
+    if (b.size() < 60) return false; // IV(12) + TAG(16) + 32 byte ciphertext
+
+    unsigned char iv[12], tag[16];
     memcpy(iv, b.data(), 12);
     memcpy(tag, b.data() + 12, 16);
-    memcpy(ct, b.data() + 28, 8);
-    aes_decrypt_gcm(ct, 8, iv, 12, tag, K.data(), iv, 12, pt);
+    std::vector<unsigned char> ct(b.begin() + 28, b.end());
+    
+    // Decifra
+    std::vector<unsigned char> pt(ct.size());
+    const std::string aad = "STEP6";
+    if (!aes_decrypt_gcm(ct.data(), ct.size(), iv, 12, tag, K.data(),
+                        (const unsigned char*)aad.data(), aad.size(), pt.data()))
+        return false;
 
-    uint64_t received = read_be64(pt);
+    // Estrai il nonce+1
+    std::vector<unsigned char> nonce_data;
+    if (!extract_padded_message(pt, nonce_data) || nonce_data.size() != 8) {
+        std::cerr << "[ERROR] Invalid nonce3+1 format\n";
+        return false;
+    }
+
+    uint64_t received = read_be64(nonce_data.data());
     valid = (received == n3 + 1);
     return true;
 }
-
+// --- SERVER STEP 7: Send AES("OK"/"RETRY" || n3+2) + signature ---
 bool server_step7_send_final(int sock, const std::vector<unsigned char>& K, uint64_t n3, bool ok) {
-    std::cout << "[DBG SERVER] Step7 send final msg\n";
     const char* res = ok ? "OK" : "RETRY";
     uint64_t n3p2 = n3 + 2;
-    unsigned char buf[10];
-    memcpy(buf, res, 2);
-    write_be64(buf + 2, n3p2);
+    
+    // Costruisci messaggio
+    unsigned char result_msg[10];
+    memcpy(result_msg, res, 2);
+    write_be64(result_msg + 2, n3p2);
 
-    unsigned char iv[12], tag[16], ct[10];
+    // Costruisci plaintext strutturato
+    std::vector<unsigned char> pt;
+    add_padded_message(pt, result_msg, 10);
+
+    // Cifra
+    unsigned char iv[12], tag[16];
     gen_iv(iv);
-    aes_encrypt_gcm(K.data(), buf, 10, iv, 12, iv, 12, ct, tag);
+    std::vector<unsigned char> ct(pt.size());
+    const std::string aad = "STEP7";
+    if (!aes_encrypt_gcm(K.data(), pt.data(), pt.size(), iv, 12,
+                        (const unsigned char*)aad.data(), aad.size(), ct.data(), tag))
+        return false;
 
+    // Firma il ciphertext
     EVP_PKEY* priv = load_private_key("keys/server_priv.pem");
     std::vector<unsigned char> sig(512);
     size_t siglen;
-    sign_data(priv, ct, 10, sig.data(), siglen);
+    sign_data(priv, ct.data(), ct.size(), sig.data(), siglen);
     EVP_PKEY_free(priv);
 
-    std::vector<unsigned char> o;
-    uint32_t slen_net = htonl(siglen);
-    o.insert(o.end(), (unsigned char*)&slen_net, (unsigned char*)&slen_net + 4);
-    o.insert(o.end(), sig.begin(), sig.begin() + siglen);
-    o.insert(o.end(), iv, iv + 12);
-    o.insert(o.end(), tag, tag + 16);
-    o.insert(o.end(), ct, ct + 10);
-    return send_msg(sock, o);
+    // Costruisci messaggio finale
+    std::vector<unsigned char> msg;
+    uint32_t net_siglen = htonl(static_cast<uint32_t>(siglen));
+    msg.insert(msg.end(), (unsigned char*)&net_siglen, (unsigned char*)&net_siglen + 4);
+    msg.insert(msg.end(), sig.begin(), sig.begin() + siglen);
+    msg.insert(msg.end(), iv, iv + 12);
+    msg.insert(msg.end(), tag, tag + 16);
+    msg.insert(msg.end(), ct.begin(), ct.end());
+    
+    return send_msg(sock, msg);
 }
-
 int apertura_canale_sicuro_server(int sock, std::vector<unsigned char>& session_key) {
-    std::cout << "[DBG SERVER] Start\n";
+    std::cout << "[DBG SERVER] Starting secure channel setup\n";
 
-    uint64_t n1, n2, n3;
+    // Inizializza tutte le variabili
+    uint64_t n1 = 0, n2 = 0, n3 = 0;
     std::string user;
     std::vector<unsigned char> key;
     std::vector<unsigned char> pubB;
     EVP_PKEY* dhk = nullptr;
+    EVP_PKEY* pubB_key = nullptr;
+    unsigned char* sec = nullptr;
+    int ret = -1; // Valore di ritorno di default (errore)
 
-    // Step 1: ricevi HELLO + n1 + username
-    if (!server_step1_recv_hello(sock, n1, user)) {
-        std::cerr << "[ERROR SERVER] Step1 failed\n";
-        return -1;
+    try {
+        // Step 1: ricevi HELLO + n1 + username
+        if (!server_step1_recv_hello(sock, n1, user)) {
+            std::cerr << "[ERROR SERVER] Step1 failed - Invalid HELLO message\n";
+            log_openssl_errors("server_errors.log");
+            throw std::runtime_error("Step1 failed");
+        }
+
+        // Step 2: invia E(Hash(p), n1||n2||ts) + firma
+        if (!server_step2_send_nonce_signature(sock, user, n1, n2, key)) {
+            std::cerr << "[ERROR SERVER] Step2 failed - Challenge generation failed\n";
+            log_openssl_errors("server_errors.log");
+            throw std::runtime_error("Step2 failed");
+        }
+
+        // Step 3: ricevi E(username || n2 || pubB)
+        if (!server_step3_recv_dh_pubB(sock, user, n2, key, pubB)) {
+            std::cerr << "[ERROR SERVER] Step3 failed - Invalid DH public key from client\n";
+            log_openssl_errors("server_errors.log");
+            throw std::runtime_error("Step3 failed");
+        }
+
+        // Step 4: genera e invia DH pubA
+        if (!server_step4_send_dh_pubA(sock, dhk, key)) {
+            std::cerr << "[ERROR SERVER] Step4 failed - DH key exchange failed\n";
+            log_openssl_errors("server_errors.log");
+            throw std::runtime_error("Step4 failed");
+        }
+
+        // Validazione chiave pubblica del client
+        pubB_key = import_dh_pubkey(pubB.data(), pubB.size());
+        //if (!pubB_key || !validate_dh_public_key(dhk, pubB_key)
+        if (!pubB_key ) {                   
+            std::cerr << "[ERROR SERVER] Invalid client DH public key\n";
+            log_openssl_errors("server_errors.log");
+            throw std::runtime_error("Invalid client DH key");
+        }
+
+        // Calcola segreto condiviso
+        size_t slen = 0;
+        sec = derive_shared_secret(dhk, pubB_key, slen);
+        if (!sec || slen == 0) {
+            std::cerr << "[ERROR SERVER] Shared secret derivation failed\n";
+            log_openssl_errors("server_errors.log");
+            throw std::runtime_error("Shared secret failed");
+        }
+
+        // Deriva la chiave di sessione
+        std::vector<unsigned char> K;
+        try {
+            K = kdf({sec, sec + slen}, user, n1, n2);
+            if (K.empty()) {
+                throw std::runtime_error("Empty KDF result");
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[ERROR SERVER] KDF failed: " << e.what() << "\n";
+            throw;
+        }
+
+        // Step 5: invia E(K, nonce3)
+        if (!server_step5_send_nonce3(sock, K, n3)) {
+            std::cerr << "[ERROR SERVER] Step5 failed - Nonce3 send failed\n";
+            throw std::runtime_error("Step5 failed");
+        }
+
+        // Step 6: ricevi E(K, nonce3 + 1)
+        bool valid_n3 = false;
+        if (!server_step6_recv_nonce3plus1(sock, K, n3, valid_n3)) {
+            std::cerr << "[ERROR SERVER] Step6 failed - Nonce3+1 validation failed\n";
+            throw std::runtime_error("Step6 failed");
+        }
+
+        if (!valid_n3) {
+            std::cerr << "[WARN SERVER] Client failed nonce3 validation\n";
+            // Continua comunque per inviare RETRY
+        }
+
+        // Step 7: invia E(K, OK/RETRY || nonce3+2) + firma
+        if (!server_step7_send_final(sock, K, n3, valid_n3)) {
+            std::cerr << "[ERROR SERVER] Step7 failed - Final message send failed\n";
+            throw std::runtime_error("Step7 failed");
+        }
+
+        if (valid_n3) {
+            std::cout << "[DBG SERVER] Handshake completed successfully\n";
+            session_key = std::move(K);
+            ret = 0; // Successo
+        } else {
+            std::cout << "[DBG SERVER] Handshake failed - RETRY needed\n";
+            ret = -1; // Fallimento
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "[FATAL SERVER] Exception during handshake: " << e.what() << "\n";
+        ret = -1;
     }
 
-    // Step 2: invia E(Hash(p), n1||n2||ts) + firma
-    if (!server_step2_send_nonce_signature(sock, user, n1, n2, key)) {
-        std::cerr << "[ERROR SERVER] Step2 failed\n";
-        return -1;
-    }
+    // Pulizia delle risorse
+    if (sec) OPENSSL_free(sec);
+    if (pubB_key) EVP_PKEY_free(pubB_key);
+    if (dhk) EVP_PKEY_free(dhk);
 
-    // Step 3: ricevi E(username || n2 || pubB)
-    if (!server_step3_recv_dh_pubB(sock, user, n2, key, pubB)) {
-        std::cerr << "[ERROR SERVER] Step3 failed\n";
-        return -1;
-    }
+    
 
-    // Step 4: genera e invia DH pubA
-    if (!server_step4_send_dh_pubA(sock, dhk, key)) {
-        std::cerr << "[ERROR SERVER] Step4 failed\n";
-        return -1;
-    }
-
-    // Calcola chiave K condivisa
-    EVP_PKEY* pubB_key = import_dh_pubkey(pubB.data(), pubB.size());
-    size_t slen = 0;
-    unsigned char* sec = derive_shared_secret(dhk, pubB_key, slen);
-    std::vector<unsigned char> K = kdf({sec, sec + slen}, user, n1, n2);
-    OPENSSL_free(sec);
-    EVP_PKEY_free(pubB_key);
-    EVP_PKEY_free(dhk);
-
-    // Step 5: invia E(K, nonce3)
-    if (!server_step5_send_nonce3(sock, K, n3)) {
-        std::cerr << "[ERROR SERVER] Step5 failed\n";
-        return -1;
-    }
-
-    // Step 6: ricevi E(K, nonce3 + 1)
-    bool valid_n3 = false;
-    if (!server_step6_recv_nonce3plus1(sock, K, n3, valid_n3)) {
-        std::cerr << "[ERROR SERVER] Step6 failed\n";
-        return -1;
-    }
-
-    // Step 7: invia E(K, OK/RETRY || nonce3+2) + firma
-    if (!server_step7_send_final(sock, K, n3, valid_n3)) {
-        std::cerr << "[ERROR SERVER] Step7 failed\n";
-        return -1;
-    }
-
-    std::cout << "[DBG SERVER] Handshake completed " << (valid_n3 ? "successfully" : "with RETRY") << "\n";
-    // handshake successful: hand back the key
-    session_key = std::move(K);
-    return valid_n3 ? 0 : -1;
+    return ret;
 }
-

@@ -12,7 +12,8 @@ using namespace std;
 // Gestisce multipli comandi su un singolo clientSocket
 void handleClientSession(int clientSocket,
                          const vector<unsigned char>& session_key)
-{
+{   
+
     while (true)
     {
         // --- 1) ricevi un messaggio cifrato singolo ---
@@ -102,8 +103,35 @@ int main()
             cerr << "Error on accept().\n";
             continue;
         }
+        
+        bool handshake_successful = false;
+        const int max_attempts = 3;
 
-        cout << "[Server] Nuova connessione, avvio handshake sicuro...\n";
+        for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+            cout << "[Server] Tentativo handshake #" << attempt << "...\n";
+            if (apertura_canale_sicuro_server(clientSocket, session_key) == 0) {
+                cout << "[Server] Handshake completato, inizio sessione comandi.\n";
+                handshake_successful = true;
+                resetMessageCounter(); 
+                handleClientSession(clientSocket, session_key);
+                break;
+            } else {
+                cerr << "[Server] Handshake fallito (tentativo #" << attempt << ").\n";
+            }
+        }
+
+        if (!handshake_successful) {
+            cerr << "[Server] Handshake fallito dopo " << max_attempts << " tentativi. Chiudo connessione.\n";
+        }
+
+        // 🔐 Cancella in modo sicuro la chiave di sessione
+        fill(session_key.begin(), session_key.end(), 0);
+        session_key.clear();
+
+        close(clientSocket);
+        
+        /*
+        cout << "[Server] Nuova connessione, avvio handshake sicuro...\n"; 
         // apertura canale sicuro e derivazione session_key
         if (apertura_canale_sicuro_server(clientSocket, session_key) == 0) {
             cout << "[Server] Handshake completato, inizio sessione comandi.\n";
@@ -113,7 +141,8 @@ int main()
         }
 
         close(clientSocket);
-    }
+        */
+        }
 
     close(serverSocket);
     return 0;

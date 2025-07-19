@@ -22,6 +22,18 @@ static constexpr size_t MAX_PLAINTEXT   = 4*1024;              // e.g. 4 KiB
 static constexpr size_t MAX_MSG_TOTAL   = MIN_MSG + MAX_PLAINTEXT;
 
 
+static uint32_t message_counter = 0;
+
+void resetMessageCounter() {
+    message_counter = 0;
+}
+
+uint32_t getCurrentMessageCounter() {
+    return message_counter;
+}
+
+
+
 // Stampa un buffer come esadecimale, separato da spazi
 void dumpHex(const unsigned char* buf, size_t len, const std::string& title = "") {
     if (!title.empty()) std::cout << title << " (" << len << " bytes):\n";
@@ -364,6 +376,9 @@ bool sendEncryptedMessage(int sock,
                           const std::string& plaintext)
 {
     // 1) encrypt
+    message_counter++;
+    unsigned char aad[4];
+    memcpy(aad, &message_counter, 4);
     unsigned char iv[IV_LEN], tag[TAG_LEN];
     gen_iv(iv);
 
@@ -372,7 +387,7 @@ bool sendEncryptedMessage(int sock,
       K.data(),
       (const unsigned char*)plaintext.data(), (int)plaintext.size(),
       iv, IV_LEN,
-      iv, IV_LEN,
+      aad, sizeof(aad),
       ct.data(), tag
     );
 
@@ -403,6 +418,9 @@ bool recvEncryptedMessage(int sock,
                           std::string &out_plain)
 {
     // 1) read the 4‑byte BE length
+    message_counter++;
+    unsigned char aad[4];
+    memcpy(aad, &message_counter, 4);
     uint32_t be_len;
     if (recv(sock, &be_len, sizeof(be_len), MSG_WAITALL) != sizeof(be_len))
         return false;
@@ -430,7 +448,7 @@ bool recvEncryptedMessage(int sock,
     // 5) decrypt
     std::vector<unsigned char> pt(ct_len);
     if (!aes_decrypt_gcm(ct, ct_len, iv, IV_LEN, tag,
-                         K.data(), iv, IV_LEN, pt.data()))
+                         K.data(), aad, sizeof(aad), pt.data()))
       return false;
 
     // 6) return as std::string

@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <sys/socket.h>
+#include <cstdlib>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include "../include/utility.h"
@@ -58,17 +59,32 @@ int main() {
 
     // 2) Handshake sicuro
     // chiediamo la password in chiaro, ma passiamo hash_password() al canale
-    cout << "Username: ";
-    getline(cin, username);
-    cout << "Password: ";
-    getline(cin, password);
-    hashed_pw = hash_password(password);
+    bool handshake_success = false;
+    const int max_attempts = 3;
 
-    if (apertura_canale_sicuro_client(sock, username, hashed_pw, session_key) != 0) {
-        cerr << "Handshake fallito\n";
+    for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+        //system("clear");
+        cout << "Username: ";
+        getline(cin, username);
+        cout << "Password: ";
+        getline(cin, password);
+        hashed_pw = hash_password(password);
+
+        if (apertura_canale_sicuro_client(sock, username, hashed_pw, session_key) == 0) {
+            handshake_success = true;
+            resetMessageCounter(); 
+            break;
+        }
+
+        cerr << "Handshake fallito.\n";
+    }
+
+    if (!handshake_success) {
+        cerr << "Impossibile stabilire un canale sicuro dopo " << max_attempts << " tentativi.\n";
         close(sock);
         return 1;
     }
+
 
     // 3) Login loop (gestisce anche primo cambio password)
     while (true) {
@@ -140,7 +156,10 @@ int main() {
             break;
         }
     }
+    fill(session_key.begin(), session_key.end(), 0);
+    session_key.clear();
 
     close(sock);
+    resetMessageCounter(); 
     return 0;
 }

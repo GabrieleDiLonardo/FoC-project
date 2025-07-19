@@ -23,9 +23,13 @@ static uint64_t gen_nonce();
 
 */
 
+void resetMessageCounter();
+uint32_t getCurrentMessageCounter();
+
 /// Perform the handshake on 'sock', authenticating 'user' with 'pass'.
 /// On success, returns 0 *and* sets session_key to your 32‑byte shared key.
 /// On failure, returns -1 and session_key is left unspecified.
+
 int apertura_canale_sicuro_client(int sock,
                                   const std::string& user,
                                   const std::string& pass,
