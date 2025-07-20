@@ -11,8 +11,6 @@
 
 using namespace std;
 
-//static const char* SERVER_IP = "127.0.0.1";  
-
 // Legge da sock fino a '\n' (inclusa), ritorna la riga senza '\n'
 bool recvLine(int sock, string &out) {
     out.clear();
@@ -39,54 +37,53 @@ string getCommandFromChoice(int choice) {
 }
 
 int main() {
-    string username, password, hashed_pw, line;
-    std::vector<unsigned char> session_key;
-    // 1) Creazione socket e connect
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        cerr << "Errore creazione socket\n";
-        return 1;
-    }
+
+    // 1) Handshake sicuro
+     int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) { perror("socket"); return 1; }
+    
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port   = htons(PORT);
     inet_pton(AF_INET, SERVER_IP, &addr.sin_addr);
     if (connect(sock, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        cerr << "Errore connessione al server\n";
-        close(sock);
-        return 1;
+        perror("connect"); close(sock); return 1;
     }
 
-    // 2) Handshake sicuro
-    // chiediamo la password in chiaro, ma passiamo hash_password() al canale
+    std::vector<unsigned char> session_key;
     bool handshake_success = false;
-    const int max_attempts = 3;
+    const int MAX_ATTEMPTS = 3;
+    std::string username, password, hashed_pw,line;
 
-    for (int attempt = 1; attempt <= max_attempts; ++attempt) {
-        //system("clear");
-        cout << "Username: ";
-        getline(cin, username);
-        cout << "Password: ";
-        getline(cin, password);
+    // Handshake sicuro con retry credenziali
+    for (int attempt = 1; attempt <= MAX_ATTEMPTS; ++attempt) {
+        std::cout << "Username: "; std::getline(std::cin, username);
+        std::cout << "Password: "; std::getline(std::cin, password);
         hashed_pw = hash_password(password);
 
+        std::cout << "[Client] Handshake attempt #" << attempt << "...\n";
         if (apertura_canale_sicuro_client(sock, username, hashed_pw, session_key) == 0) {
             handshake_success = true;
-            resetMessageCounter(); 
+            resetMessageCounter();
             break;
         }
-
-        cerr << "Handshake fallito.\n";
+        std::cerr << "Handshake fallito. Riprova.\n";
+        close(sock);
+        sock = socket(AF_INET, SOCK_STREAM, 0);
+        if (sock < 0) { perror("socket"); return 1; }
+        if (connect(sock, (sockaddr*)&addr, sizeof(addr)) < 0) {
+            perror("connect"); close(sock); return 1;
+        }
     }
-
+    
     if (!handshake_success) {
-        cerr << "Impossibile stabilire un canale sicuro dopo " << max_attempts << " tentativi.\n";
+        std::cerr << "Impossibile stabilire canale sicuro dopo "
+                  << MAX_ATTEMPTS << " tentativi.\n";
         close(sock);
         return 1;
     }
 
-
-    // 3) Login loop (gestisce anche primo cambio password)
+    // 2) Login loop (gestisce anche primo cambio password)
     while (true) {
         // send encrypted Login
         string req = "Login " + username + " " + hashed_pw + "\n";
@@ -114,7 +111,7 @@ int main() {
         break;
     }
 
-    // 4) Interaction loop
+    // 3) Interaction loop
     for (;;) {
         cout << "\nMenu:\n"
              << "1) CreateKeys\n"

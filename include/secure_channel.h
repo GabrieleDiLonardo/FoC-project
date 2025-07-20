@@ -7,6 +7,7 @@
 #include <vector>
 #include <openssl/evp.h>
 
+#define MAX_SKEW 45
 // === Funzioni principali client/server ===
 // secure_channel.h
 /*

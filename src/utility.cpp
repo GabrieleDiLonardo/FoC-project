@@ -150,7 +150,7 @@ EVP_PKEY* generate_dh_keypair(EVP_PKEY* params) {
 
 EVP_PKEY* import_dh_pubkey(const unsigned char* pubkey_data, size_t pubkey_len) {
     if (!pubkey_data || pubkey_len == 0) {
-        std::cerr << "Invalid public key data\n";
+        //std::cerr << "Invalid public key data\n";
         return nullptr;
     }
 
@@ -407,7 +407,7 @@ bool sendEncryptedMessage(int sock,
     memcpy(p + IV_LEN,          tag, TAG_LEN);
     memcpy(p + IV_LEN + TAG_LEN, ct.data(), ct.size());
 
-    dumpHex(packet.data(), packet.size(), "OUTGOING ENCRYPTED MESSAGE");
+    //dumpHex(packet.data(), packet.size(), "OUTGOING ENCRYPTED MESSAGE");
     // 3) single send()
     ssize_t sent = send(sock, packet.data(), packet.size(), MSG_NOSIGNAL);
     return sent == (ssize_t)packet.size();
@@ -438,7 +438,7 @@ bool recvEncryptedMessage(int sock,
         return false;
 
         // body.data() e body_len letti dal socket…
-    dumpHex(body.data(), body_len, "INCOMING ENCRYPTED MESSAGE");
+    //dumpHex(body.data(), body_len, "INCOMING ENCRYPTED MESSAGE");
 
     // 4) split IV, TAG, CT
     

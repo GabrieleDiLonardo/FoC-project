@@ -68,7 +68,7 @@ void handleClientSession(int clientSocket,
 
 int main()
 {
-    vector<unsigned char> session_key;
+    
     int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (serverSocket < 0) {
         cerr << "Error creating socket.\n";
@@ -96,52 +96,32 @@ int main()
 
     while (true)
     {
+        vector<unsigned char> session_key;
         sockaddr_in clientAddr;
         socklen_t   clientLen = sizeof(clientAddr);
+        
+        
         int clientSocket = accept(serverSocket, (sockaddr*)&clientAddr, &clientLen);
         if (clientSocket < 0) {
             cerr << "Error on accept().\n";
-            continue;
+            break;
         }
+
         
-        bool handshake_successful = false;
-        const int max_attempts = 3;
-
-        for (int attempt = 1; attempt <= max_attempts; ++attempt) {
-            cout << "[Server] Tentativo handshake #" << attempt << "...\n";
-            if (apertura_canale_sicuro_server(clientSocket, session_key) == 0) {
-                cout << "[Server] Handshake completato, inizio sessione comandi.\n";
-                handshake_successful = true;
-                resetMessageCounter(); 
-                handleClientSession(clientSocket, session_key);
-                break;
-            } else {
-                cerr << "[Server] Handshake fallito (tentativo #" << attempt << ").\n";
-            }
+        if (apertura_canale_sicuro_server(clientSocket, session_key) == 0) {
+            cout << "[Server] Handshake completato.\n";
+            resetMessageCounter();
+           
+            handleClientSession(clientSocket, session_key);
+            shutdown(clientSocket, SHUT_RDWR);
+            
         }
 
-        if (!handshake_successful) {
-            cerr << "[Server] Handshake fallito dopo " << max_attempts << " tentativi. Chiudo connessione.\n";
-        }
 
-        // 🔐 Cancella in modo sicuro la chiave di sessione
         fill(session_key.begin(), session_key.end(), 0);
         session_key.clear();
-
         close(clientSocket);
         
-        /*
-        cout << "[Server] Nuova connessione, avvio handshake sicuro...\n"; 
-        // apertura canale sicuro e derivazione session_key
-        if (apertura_canale_sicuro_server(clientSocket, session_key) == 0) {
-            cout << "[Server] Handshake completato, inizio sessione comandi.\n";
-            handleClientSession(clientSocket, session_key);
-        } else {
-            cerr << "[Server] Handshake fallito, chiudo connessione.\n";
-        }
-
-        close(clientSocket);
-        */
         }
 
     close(serverSocket);
