@@ -85,10 +85,12 @@ EVP_PKEY* load_public_key(const std::string& file) {
     fclose(fp);
     return p;
 }
+
 EVP_PKEY* load_private_key(const std::string& file) {
     FILE* fp = fopen(file.c_str(),"r");
     if(!fp){ perror("fopen"); return nullptr;}
-    EVP_PKEY* p = PEM_read_PrivateKey(fp,NULL,NULL,NULL);
+    const char* password = "server";
+    EVP_PKEY* p = PEM_read_PrivateKey(fp, NULL, NULL, (void*) password);
     fclose(fp);
     return p;
 }
